@@ -5,10 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BC Management System</title>
 <link rel="stylesheet" href="style.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<!-- Load environment config (development only; in production, inject via server) -->
-<script src=".env.js"></script>
 </head>
 <body>
 
@@ -237,6 +233,12 @@
 <!-- Hidden PDF render targets -->
 <div id="pdf-render-area" style="position:fixed; left:-9999px; top:0;"></div>
 
+<!-- Load external libraries first -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<!-- Load environment config (development only; in production, inject via server) -->
+<script src=".env.js"></script>
+<!-- Load application code -->
 <script src="supabase-config.js"></script>
 <script src="db.js"></script>
 <script src="app.js"></script>

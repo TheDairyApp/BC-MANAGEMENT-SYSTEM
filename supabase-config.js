@@ -52,5 +52,25 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   );
 }
 
-// Initialize Supabase client (global, used by db.js)
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Wait for Supabase library to load, then initialize client
+let supabaseClient = null;
+function initSupabaseClient() {
+  if (!window.supabase) {
+    console.warn('⏳ Waiting for Supabase library to load...');
+    setTimeout(initSupabaseClient, 100);
+    return;
+  }
+  if (!supabaseClient) {
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('✅ Supabase client initialized');
+  }
+}
+
+// Initialize immediately if library is ready, otherwise wait
+if (window.supabase) {
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+} else {
+  document.addEventListener('DOMContentLoaded', initSupabaseClient);
+  // Also try in case DOM is already loaded
+  setTimeout(initSupabaseClient, 500);
+}
