@@ -199,7 +199,9 @@ function renderCommitteesView() {
       </div>
     `;
     card.querySelector('[data-action="open"]').addEventListener('click', () => {
-      activeCommitteeId = c.id; committeeSelectEl.value = c.id; switchView('dashboard');
+      activeCommitteeId = c.id;
+      document.getElementById('active-committee-select').value = c.id;
+      switchView('dashboard');
     });
     card.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
       e.stopPropagation();
