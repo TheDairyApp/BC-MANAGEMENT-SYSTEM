@@ -1,4 +1,64 @@
 // ============================================================
+// Global helpers (duplicated from db.js for direct app.js access)
+// ============================================================
+function todayDateStr() { return new Date().toISOString().split('T')[0]; }
+function todayMonthKey() { return todayDateStr().substring(0, 7); }
+function monthLabel(monthKey) {
+  if (!monthKey) return '—';
+  const [y, m] = monthKey.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+function fmtMoney(n) {
+  const v = Math.round(Number(n) || 0);
+  const sign = v < 0 ? '-' : '';
+  return sign + 'Rs ' + Math.abs(v).toLocaleString('en-PK');
+}
+function buildScheduleKeys(startDate, totalMonths) {
+  function addMonths(monthKey, n) {
+    const [y, m] = monthKey.split('-').map(Number);
+    const d = new Date(y, m - 1 + n, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const startMonth = startDate.substring(0, 7);
+  const arr = [];
+  for (let i = 0; i < totalMonths; i++) arr.push(addMonths(startMonth, i));
+  return arr;
+}
+function computeMemberCount(committeeId) {
+  if (!DB || !DB.cache || !DB.cache.members) return 0;
+  return DB.cache.members.filter(m => m.committee_id === committeeId).length;
+}
+function computePool(committee) {
+  const memberCount = computeMemberCount(committee.id) || committee.total_months;
+  return committee.pool_override != null ? Number(committee.pool_override) : Number(committee.monthly_installment) * memberCount;
+}
+function computeCellStatus(committee, memberId, monthKey) {
+  if (!DB || !DB.cache || !DB.cache.transactions) return { status: 'unpaid', paidSum: 0, due: 0, txs: [] };
+  const txs = DB.cache.transactions.filter(t => t.member_id === memberId && t.month_key === monthKey && t.type === 'inflow_installment');
+  const skipped = txs.some(t => (t.notes || '').toUpperCase().includes('SKIPPED'));
+  const paidSum = txs.reduce((s, t) => s + Number(t.amount), 0);
+  const due = Number(committee.monthly_installment);
+  if (skipped) return { status: 'skipped', paidSum, due, txs };
+  if (paidSum <= 0) return { status: 'unpaid', paidSum, due, txs };
+  if (paidSum < due) return { status: 'partial', paidSum, due, txs };
+  return { status: 'full', paidSum, due, txs };
+}
+function computeMemberLedger(committee, member) {
+  const schedule = buildScheduleKeys(committee.start_date, committee.total_months);
+  if (!DB || !DB.cache || !DB.cache.schedule) return { rows: [], payoutRow: null, totalDue: 0, totalPaid: 0 };
+  const payoutRow = DB.cache.schedule.find(s => s.member_id === member.id && s.committee_id === committee.id);
+  let cumulativePaid = 0;
+  const rows = schedule.map(monthKey => {
+    const cell = computeCellStatus(committee, member.id, monthKey);
+    cumulativePaid += cell.paidSum;
+    const payoutSettled = payoutRow && payoutRow.status === 'paid' && payoutRow.month_key <= monthKey;
+    const balance = cumulativePaid - (payoutSettled ? Number(payoutRow.payout_amount || 0) : 0);
+    return { monthKey, due: cell.due, paid: cell.paidSum, status: cell.status, cumulativePaid, balance, isPayoutMonth: payoutRow && payoutRow.month_key === monthKey };
+  });
+  return { rows, payoutRow, totalDue: schedule.length * Number(committee.monthly_installment), totalPaid: cumulativePaid };
+}
+
+// ============================================================
 // State (initialized in DOMContentLoaded)
 // ============================================================
 let activeCommitteeId = null;
