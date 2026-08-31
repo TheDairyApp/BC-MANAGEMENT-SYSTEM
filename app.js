@@ -6,10 +6,17 @@ let currentView = 'committees';
 let views = {};
 let navs = {};
 
-function activeCommittee() { return DB.cache.committees.find(c => c.id === activeCommitteeId) || null; }
+function activeCommittee() {
+  if (!DB || !DB.cache || !DB.cache.committees) return null;
+  return DB.cache.committees.find(c => c.id === activeCommitteeId) || null;
+}
 
 function switchView(name) {
-  if (name !== 'committees' && !activeCommittee()) { alert('Select or create a committee first.'); name = 'committees'; }
+  if (!views[name]) return;
+  if (name !== 'committees' && !activeCommittee()) {
+    alert('Select or create a committee first.');
+    name = 'committees';
+  }
   currentView = name;
   Object.values(views).forEach(v => v.classList.add('hidden'));
   Object.values(navs).forEach(n => n.classList.remove('active'));
@@ -20,11 +27,12 @@ function switchView(name) {
 }
 
 function renderCurrentView() {
-  if (currentView === 'committees') renderCommitteesView();
-  if (currentView === 'dashboard') renderDashboardView();
-  if (currentView === 'matrix') renderMatrixView();
-  if (currentView === 'qurandazi') renderQurandaziView();
-  if (currentView === 'reports') renderReportsView();
+  if (!views || Object.keys(views).length === 0) return;
+  if (currentView === 'committees' && typeof renderCommitteesView === 'function') renderCommitteesView();
+  if (currentView === 'dashboard' && typeof renderDashboardView === 'function') renderDashboardView();
+  if (currentView === 'matrix' && typeof renderMatrixView === 'function') renderMatrixView();
+  if (currentView === 'qurandazi' && typeof renderQurandaziView === 'function') renderQurandaziView();
+  if (currentView === 'reports' && typeof renderReportsView === 'function') renderReportsView();
 }
 
 // ============================================================
@@ -47,20 +55,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     reports: document.getElementById('nav-reports')
   };
 
-  // Attach nav listeners
-  navs.committees.addEventListener('click', e => { e.preventDefault(); switchView('committees'); });
-  navs.dashboard.addEventListener('click', e => { e.preventDefault(); switchView('dashboard'); });
-  navs.matrix.addEventListener('click', e => { e.preventDefault(); switchView('matrix'); });
-  navs.qurandazi.addEventListener('click', e => { e.preventDefault(); switchView('qurandazi'); });
-  navs.reports.addEventListener('click', e => { e.preventDefault(); switchView('reports'); });
-
-  // Check auth
+  // Check auth first
   const isLoggedIn = await DB.init();
   if (isLoggedIn) {
     document.getElementById('auth-screen').classList.add('hidden');
     document.getElementById('app-screen').classList.remove('hidden');
     window.dispatchEvent(new Event('db_updated'));
   }
+
+  // Attach nav listeners only after auth check
+  if (navs.committees) navs.committees.addEventListener('click', e => { e.preventDefault(); switchView('committees'); });
+  if (navs.dashboard) navs.dashboard.addEventListener('click', e => { e.preventDefault(); switchView('dashboard'); });
+  if (navs.matrix) navs.matrix.addEventListener('click', e => { e.preventDefault(); switchView('matrix'); });
+  if (navs.qurandazi) navs.qurandazi.addEventListener('click', e => { e.preventDefault(); switchView('qurandazi'); });
+  if (navs.reports) navs.reports.addEventListener('click', e => { e.preventDefault(); switchView('reports'); });
 });
 
 document.getElementById('login-btn').addEventListener('click', async () => {
@@ -86,17 +94,24 @@ document.getElementById('logout-btn').addEventListener('click', async (e) => {
 // ============================================================
 // Active committee selector
 // ============================================================
-const committeeSelectEl = document.getElementById('active-committee-select');
-committeeSelectEl.addEventListener('change', () => {
-  activeCommitteeId = committeeSelectEl.value;
-  renderCurrentView();
+document.addEventListener('DOMContentLoaded', () => {
+  const committeeSelectEl = document.getElementById('active-committee-select');
+  if (committeeSelectEl) {
+    committeeSelectEl.addEventListener('change', () => {
+      activeCommitteeId = committeeSelectEl.value;
+      renderCurrentView();
+    });
+  }
 });
 
 window.addEventListener('db_updated', () => {
-  committeeSelectEl.innerHTML = DB.cache.committees.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-  if (!activeCommitteeId && DB.cache.committees[0]) activeCommitteeId = DB.cache.committees[0].id;
-  if (activeCommitteeId) committeeSelectEl.value = activeCommitteeId;
-  renderCurrentView();
+  const committeeSelectEl = document.getElementById('active-committee-select');
+  if (committeeSelectEl && DB && DB.cache && DB.cache.committees) {
+    committeeSelectEl.innerHTML = DB.cache.committees.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    if (!activeCommitteeId && DB.cache.committees[0]) activeCommitteeId = DB.cache.committees[0].id;
+    if (activeCommitteeId) committeeSelectEl.value = activeCommitteeId;
+    renderCurrentView();
+  }
 });
 
 // ============================================================
