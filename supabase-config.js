@@ -28,12 +28,7 @@ let SUPABASE_ANON_KEY = '';
 if (window.SUPABASE_CONFIG) {
   SUPABASE_URL = window.SUPABASE_CONFIG.url;
   SUPABASE_ANON_KEY = window.SUPABASE_CONFIG.key;
-}
-
-// Fall back to environment (if using a build tool like Vite)
-if (!SUPABASE_URL && typeof import.meta !== 'undefined' && import.meta.env) {
-  SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-  SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  console.log('✅ Loaded Supabase config from window.SUPABASE_CONFIG');
 }
 
 // Validate that credentials are loaded
