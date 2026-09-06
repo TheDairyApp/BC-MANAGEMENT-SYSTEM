@@ -154,6 +154,33 @@ const DB = {
     return committee;
   },
 
+  async updateCommittee(cid, patch) {
+    const idx = this.cache.committees.findIndex(c => c.id === cid);
+    if (idx > -1) this.cache.committees[idx] = { ...this.cache.committees[idx], ...patch };
+    this._persist();
+    const { error } = await supabaseClient.from('committees').update(patch).eq('id', cid);
+    if (error) { alert('Failed to update committee: ' + error.message); await this.syncFromServer(); }
+    else window.dispatchEvent(new Event('db_updated'));
+  },
+
+  async updateMember(memberId, patch) {
+    const idx = this.cache.members.findIndex(m => m.id === memberId);
+    if (idx > -1) this.cache.members[idx] = { ...this.cache.members[idx], ...patch };
+    this._persist();
+    const { error } = await supabaseClient.from('members').update(patch).eq('id', memberId);
+    if (error) alert('Failed to update member: ' + error.message);
+  },
+
+  async addMember(committeeId, name, phone) {
+    const { data, error } = await supabaseClient.from('members').insert([{
+      committee_id: committeeId, user_id: this.user.id, name, phone
+    }]).select().single();
+    if (error) { alert('Failed to add member: ' + error.message); return; }
+    this.cache.members.push(data);
+    this._persist();
+    window.dispatchEvent(new Event('db_updated'));
+  },
+
   async deleteCommittee(committeeId) {
     const backup = JSON.parse(JSON.stringify(this.cache));
     this.cache.committees = this.cache.committees.filter(c => c.id !== committeeId);

@@ -1,105 +1,134 @@
 // ============================================================
-// Global helpers (duplicated from db.js for direct app.js access)
+// Global helpers
 // ============================================================
 function todayDateStr() { return new Date().toISOString().split('T')[0]; }
 function todayMonthKey() { return todayDateStr().substring(0, 7); }
-function monthLabel(monthKey) {
-  if (!monthKey) return '—';
-  const [y, m] = monthKey.split('-').map(Number);
+function monthLabel(mk) {
+  if (!mk) return '—';
+  const [y, m] = mk.split('-').map(Number);
   return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 function fmtMoney(n) {
   const v = Math.round(Number(n) || 0);
-  const sign = v < 0 ? '-' : '';
-  return sign + 'Rs ' + Math.abs(v).toLocaleString('en-PK');
+  return (v < 0 ? '-' : '') + 'Rs ' + Math.abs(v).toLocaleString('en-PK');
 }
 function buildScheduleKeys(startDate, totalMonths) {
-  function addMonths(monthKey, n) {
-    const [y, m] = monthKey.split('-').map(Number);
+  function am(mk, n) {
+    const [y, m] = mk.split('-').map(Number);
     const d = new Date(y, m - 1 + n, 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   }
-  const startMonth = startDate.substring(0, 7);
-  const arr = [];
-  for (let i = 0; i < totalMonths; i++) arr.push(addMonths(startMonth, i));
-  return arr;
+  const s = startDate.substring(0, 7); const a = [];
+  for (let i = 0; i < totalMonths; i++) a.push(am(s, i));
+  return a;
 }
-function computeMemberCount(committeeId) {
-  if (!DB || !DB.cache || !DB.cache.members) return 0;
-  return DB.cache.members.filter(m => m.committee_id === committeeId).length;
+function computeMemberCount(cid) {
+  if (!DB?.cache?.members) return 0;
+  return DB.cache.members.filter(m => m.committee_id === cid).length;
 }
-function computePool(committee) {
-  const memberCount = computeMemberCount(committee.id) || committee.total_months;
-  return committee.pool_override != null ? Number(committee.pool_override) : Number(committee.monthly_installment) * memberCount;
+function computePool(c) {
+  const n = computeMemberCount(c.id) || c.total_months;
+  return c.pool_override != null ? Number(c.pool_override) : Number(c.monthly_installment) * n;
 }
-function computeCellStatus(committee, memberId, monthKey) {
-  if (!DB || !DB.cache || !DB.cache.transactions) return { status: 'unpaid', paidSum: 0, due: 0, txs: [] };
-  const txs = DB.cache.transactions.filter(t => t.member_id === memberId && t.month_key === monthKey && t.type === 'inflow_installment');
+function computeCellStatus(c, memberId, mk) {
+  if (!DB?.cache?.transactions) return { status: 'unpaid', paidSum: 0, due: 0, txs: [] };
+  const txs = DB.cache.transactions.filter(t => t.member_id === memberId && t.month_key === mk && t.type === 'inflow_installment');
   const skipped = txs.some(t => (t.notes || '').toUpperCase().includes('SKIPPED'));
   const paidSum = txs.reduce((s, t) => s + Number(t.amount), 0);
-  const due = Number(committee.monthly_installment);
+  const due = Number(c.monthly_installment);
   if (skipped) return { status: 'skipped', paidSum, due, txs };
   if (paidSum <= 0) return { status: 'unpaid', paidSum, due, txs };
   if (paidSum < due) return { status: 'partial', paidSum, due, txs };
   return { status: 'full', paidSum, due, txs };
 }
-function computeMemberLedger(committee, member) {
-  const schedule = buildScheduleKeys(committee.start_date, committee.total_months);
-  if (!DB || !DB.cache || !DB.cache.schedule) return { rows: [], payoutRow: null, totalDue: 0, totalPaid: 0 };
-  const payoutRow = DB.cache.schedule.find(s => s.member_id === member.id && s.committee_id === committee.id);
+function computeMemberLedger(c, member) {
+  const schedule = buildScheduleKeys(c.start_date, c.total_months);
+  if (!DB?.cache?.schedule) return { rows: [], payoutRow: null, totalDue: 0, totalPaid: 0 };
+  const payoutRow = DB.cache.schedule.find(s => s.member_id === member.id && s.committee_id === c.id);
   let cumulativePaid = 0;
-  const rows = schedule.map(monthKey => {
-    const cell = computeCellStatus(committee, member.id, monthKey);
+  const rows = schedule.map(mk => {
+    const cell = computeCellStatus(c, member.id, mk);
     cumulativePaid += cell.paidSum;
-    const payoutSettled = payoutRow && payoutRow.status === 'paid' && payoutRow.month_key <= monthKey;
-    const balance = cumulativePaid - (payoutSettled ? Number(payoutRow.payout_amount || 0) : 0);
-    return { monthKey, due: cell.due, paid: cell.paidSum, status: cell.status, cumulativePaid, balance, isPayoutMonth: payoutRow && payoutRow.month_key === monthKey };
+    const settled = payoutRow && payoutRow.status === 'paid' && payoutRow.month_key <= mk;
+    const balance = cumulativePaid - (settled ? Number(payoutRow.payout_amount || 0) : 0);
+    return { monthKey: mk, due: cell.due, paid: cell.paidSum, status: cell.status, cumulativePaid, balance, isPayoutMonth: payoutRow && payoutRow.month_key === mk };
   });
-  return { rows, payoutRow, totalDue: schedule.length * Number(committee.monthly_installment), totalPaid: cumulativePaid };
+  return { rows, payoutRow, totalDue: schedule.length * Number(c.monthly_installment), totalPaid: cumulativePaid };
 }
 
 // ============================================================
-// State (initialized in DOMContentLoaded)
+// Theme
+// ============================================================
+function applyTheme(theme) {
+  document.body.classList.toggle('light', theme === 'light');
+  const btn = document.getElementById('theme-btn');
+  const lbl = document.getElementById('theme-label');
+  if (btn) btn.textContent = theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode';
+  if (lbl) lbl.textContent = theme === 'light' ? 'Dark Mode' : 'Light Mode';
+  if (btn) btn.innerHTML = (theme === 'light' ? '🌙 ' : '☀️ ') + (theme === 'light' ? 'Dark Mode' : 'Light Mode');
+}
+function toggleTheme() {
+  const cur = localStorage.getItem('bcms_theme') || 'dark';
+  const next = cur === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('bcms_theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('bcms_theme') || 'dark');
+
+// ============================================================
+// State
 // ============================================================
 let activeCommitteeId = null;
 let currentView = 'committees';
-let views = {};
-let navs = {};
+let views = {}, navs = {};
 
 function activeCommittee() {
-  if (!DB || !DB.cache || !DB.cache.committees) return null;
+  if (!DB?.cache?.committees) return null;
   return DB.cache.committees.find(c => c.id === activeCommitteeId) || null;
 }
+function getCommitteeSelectEl() { return document.getElementById('active-committee-select'); }
 
 function switchView(name) {
   if (!views[name]) return;
   if (name !== 'committees' && !activeCommittee()) {
-    alert('Select or create a committee first.');
-    name = 'committees';
+    alert('Select or create a committee first.'); name = 'committees';
   }
   currentView = name;
   Object.values(views).forEach(v => v.classList.add('hidden'));
   Object.values(navs).forEach(n => n.classList.remove('active'));
   views[name].classList.remove('hidden');
   navs[name].classList.add('active');
+  // close mobile sidebar
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
   renderCurrentView();
   window.scrollTo(0, 0);
 }
-
 function renderCurrentView() {
-  if (!views || Object.keys(views).length === 0) return;
-  if (currentView === 'committees' && typeof renderCommitteesView === 'function') renderCommitteesView();
-  if (currentView === 'dashboard' && typeof renderDashboardView === 'function') renderDashboardView();
-  if (currentView === 'matrix' && typeof renderMatrixView === 'function') renderMatrixView();
-  if (currentView === 'qurandazi' && typeof renderQurandaziView === 'function') renderQurandaziView();
-  if (currentView === 'reports' && typeof renderReportsView === 'function') renderReportsView();
+  if (!views || !Object.keys(views).length) return;
+  const map = { committees: renderCommitteesView, dashboard: renderDashboardView, matrix: renderMatrixView, qurandazi: renderQurandaziView, reports: renderReportsView };
+  if (map[currentView]) map[currentView]();
 }
 
 // ============================================================
-// Init / Auth
+// DOMContentLoaded — init everything
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize views and navs now that DOM is ready
+
+  // Theme
+  document.getElementById('theme-btn').addEventListener('click', toggleTheme);
+
+  // Mobile hamburger
+  document.getElementById('hamburger-btn').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('open');
+    document.getElementById('sidebar-overlay').classList.toggle('open');
+  });
+  document.getElementById('sidebar-overlay').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebar-overlay').classList.remove('open');
+  });
+
+  // Views / navs
   views = {
     committees: document.getElementById('view-committees'),
     dashboard: document.getElementById('view-dashboard'),
@@ -115,35 +144,54 @@ document.addEventListener('DOMContentLoaded', async () => {
     reports: document.getElementById('nav-reports')
   };
 
-  // Check auth first
-  const isLoggedIn = await DB.init();
-  if (isLoggedIn) {
+  // Auth init
+  const ok = await DB.init();
+  if (ok) {
     document.getElementById('auth-screen').classList.add('hidden');
     document.getElementById('app-screen').classList.remove('hidden');
     window.dispatchEvent(new Event('db_updated'));
   }
 
-  // Attach nav listeners only after auth check
-  if (navs.committees) navs.committees.addEventListener('click', e => { e.preventDefault(); switchView('committees'); });
-  if (navs.dashboard) navs.dashboard.addEventListener('click', e => { e.preventDefault(); switchView('dashboard'); });
-  if (navs.matrix) navs.matrix.addEventListener('click', e => { e.preventDefault(); switchView('matrix'); });
-  if (navs.qurandazi) navs.qurandazi.addEventListener('click', e => { e.preventDefault(); switchView('qurandazi'); });
-  if (navs.reports) navs.reports.addEventListener('click', e => { e.preventDefault(); switchView('reports'); });
+  // Nav listeners
+  navs.committees.addEventListener('click', e => { e.preventDefault(); switchView('committees'); });
+  navs.dashboard.addEventListener('click', e => { e.preventDefault(); switchView('dashboard'); });
+  navs.matrix.addEventListener('click', e => { e.preventDefault(); switchView('matrix'); });
+  navs.qurandazi.addEventListener('click', e => { e.preventDefault(); switchView('qurandazi'); });
+  navs.reports.addEventListener('click', e => { e.preventDefault(); switchView('reports'); });
+
+  // Committee select
+  getCommitteeSelectEl().addEventListener('change', () => {
+    activeCommitteeId = getCommitteeSelectEl().value;
+    renderCurrentView();
+  });
+
+  // Quick actions
+  document.getElementById('qa-record-payment').addEventListener('click', () => openPayModal(null, null));
+  document.getElementById('qa-run-qurandazi').addEventListener('click', () => switchView('qurandazi'));
+
+  // Matrix search
+  document.getElementById('matrix-search').addEventListener('input', renderMatrixView);
+  document.getElementById('matrix-export-btn').addEventListener('click', exportMatrixPdf);
 });
 
+// ============================================================
+// Auth
+// ============================================================
 document.getElementById('login-btn').addEventListener('click', async () => {
   const { error } = await supabaseClient.auth.signInWithPassword({
-    email: document.getElementById('email').value, password: document.getElementById('password').value
+    email: document.getElementById('email').value,
+    password: document.getElementById('password').value
   });
   if (error) alert(error.message); else if (await DB.init()) location.reload();
 });
 document.getElementById('signup-btn').addEventListener('click', async () => {
   const { error } = await supabaseClient.auth.signUp({
-    email: document.getElementById('email').value, password: document.getElementById('password').value
+    email: document.getElementById('email').value,
+    password: document.getElementById('password').value
   });
-  if (error) alert(error.message); else { alert('Account created. Please log in.'); }
+  if (error) alert(error.message); else alert('Account created! Please log in.');
 });
-document.getElementById('logout-btn').addEventListener('click', async (e) => {
+document.getElementById('logout-btn').addEventListener('click', async e => {
   e.preventDefault();
   await supabaseClient.auth.signOut();
   DB.user = null;
@@ -152,26 +200,15 @@ document.getElementById('logout-btn').addEventListener('click', async (e) => {
 });
 
 // ============================================================
-// Active committee selector
+// DB updated — refresh sidebar selector
 // ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-  const committeeSelectEl = document.getElementById('active-committee-select');
-  if (committeeSelectEl) {
-    committeeSelectEl.addEventListener('change', () => {
-      activeCommitteeId = committeeSelectEl.value;
-      renderCurrentView();
-    });
-  }
-});
-
 window.addEventListener('db_updated', () => {
-  const committeeSelectEl = document.getElementById('active-committee-select');
-  if (committeeSelectEl && DB && DB.cache && DB.cache.committees) {
-    committeeSelectEl.innerHTML = DB.cache.committees.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    if (!activeCommitteeId && DB.cache.committees[0]) activeCommitteeId = DB.cache.committees[0].id;
-    if (activeCommitteeId) committeeSelectEl.value = activeCommitteeId;
-    renderCurrentView();
-  }
+  const sel = getCommitteeSelectEl();
+  if (!sel || !DB?.cache?.committees) return;
+  sel.innerHTML = DB.cache.committees.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  if (!activeCommitteeId && DB.cache.committees[0]) activeCommitteeId = DB.cache.committees[0].id;
+  if (activeCommitteeId) sel.value = activeCommitteeId;
+  renderCurrentView();
 });
 
 // ============================================================
@@ -179,45 +216,69 @@ window.addEventListener('db_updated', () => {
 // ============================================================
 function renderCommitteesView() {
   const grid = document.getElementById('committees-grid');
+  if (!grid) return;
   grid.innerHTML = '';
-  if (DB.cache.committees.length === 0) {
-    grid.innerHTML = '<p class="muted">No committees yet. Click "+ New Committee" to create your first one.</p>';
+  if (!DB.cache.committees.length) {
+    grid.innerHTML = '<p class="muted">No committees yet. Click "+ New Committee" to get started.</p>';
     return;
   }
   DB.cache.committees.forEach(c => {
     const members = DB.getMembersForCommittee(c.id);
     const pool = computePool(c);
+    const scheduleKeys = buildScheduleKeys(c.start_date, c.total_months);
+    const today = todayMonthKey();
+    const activeMk = scheduleKeys.reduce((acc, mk) => (mk <= today ? mk : acc), scheduleKeys[0]);
+    const collected = DB.cache.transactions.filter(t => t.committee_id === c.id && t.month_key === activeMk && t.type === 'inflow_installment').reduce((s, t) => s + Number(t.amount), 0);
+    const expected = members.length * Number(c.monthly_installment);
+    const pct = expected > 0 ? Math.min(100, Math.round((collected / expected) * 100)) : 0;
     const card = document.createElement('div');
     card.className = 'committee-card';
     card.innerHTML = `
       <h3>${c.name}</h3>
-      <p>${members.length} members · ${c.total_months} months · ${fmtMoney(c.monthly_installment)}/month</p>
-      <p>Start: ${c.start_date} · Pool per draw: ${fmtMoney(pool)}</p>
+      <div class="pill-row">
+        <span class="pill accent">👥 ${members.length} members</span>
+        <span class="pill accent">📅 ${c.total_months} months</span>
+        <span class="pill success">💰 ${fmtMoney(pool)} pool</span>
+      </div>
+      <p style="margin-top:10px; font-size:0.83rem; color:var(--text2);">
+        ${fmtMoney(c.monthly_installment)}/month · Starts ${c.start_date}
+      </p>
+      <div style="margin:12px 0;">
+        <div style="display:flex; justify-content:space-between; font-size:0.78rem; color:var(--text2); margin-bottom:5px;">
+          <span>Collection ${monthLabel(activeMk)}</span>
+          <span>${pct}%</span>
+        </div>
+        <div style="height:6px; background:var(--surface3); border-radius:999px; overflow:hidden;">
+          <div style="height:100%; width:${pct}%; background:${pct===100?'var(--success)':pct>50?'var(--warning)':'var(--danger)'}; border-radius:999px; transition:width 0.6s ease;"></div>
+        </div>
+      </div>
       <div class="card-actions">
-        <button class="primary small" data-action="open">Open</button>
-        <button class="danger-btn small" data-action="delete">Delete</button>
+        <button class="btn-primary btn-sm" data-action="open">📂 Open</button>
+        <button class="btn-secondary btn-sm" data-action="edit">✏️ Edit</button>
+        <button class="btn-danger btn-sm" data-action="delete">🗑️ Delete</button>
       </div>
     `;
     card.querySelector('[data-action="open"]').addEventListener('click', () => {
       activeCommitteeId = c.id;
-      document.getElementById('active-committee-select').value = c.id;
+      const sel = getCommitteeSelectEl();
+      if (sel) sel.value = c.id;
       switchView('dashboard');
     });
-    card.querySelector('[data-action="delete"]').addEventListener('click', async (e) => {
+    card.querySelector('[data-action="edit"]').addEventListener('click', e => { e.stopPropagation(); openEditCommitteeModal(c); });
+    card.querySelector('[data-action="delete"]').addEventListener('click', async e => {
       e.stopPropagation();
-      if (confirm(`Delete "${c.name}" permanently? This removes all members, schedule and payments.`)) {
-        if (activeCommitteeId === c.id) activeCommitteeId = null;
-        await DB.deleteCommittee(c.id);
-      }
+      if (!confirm(`Delete "${c.name}" permanently?\nThis removes all members, schedule and payments.`)) return;
+      if (activeCommitteeId === c.id) activeCommitteeId = null;
+      await DB.deleteCommittee(c.id);
     });
     grid.appendChild(card);
   });
 }
 
-document.getElementById('add-committee-btn').addEventListener('click', openCommitteeModal);
-document.getElementById('qa-new-committee').addEventListener('click', openCommitteeModal);
+document.getElementById('add-committee-btn').addEventListener('click', openNewCommitteeModal);
 
-function openCommitteeModal() {
+// ---- New Committee Modal ----
+function openNewCommitteeModal() {
   document.getElementById('cm-name').value = '';
   document.getElementById('cm-start').value = todayDateStr();
   document.getElementById('cm-months').value = 10;
@@ -225,24 +286,23 @@ function openCommitteeModal() {
   document.getElementById('cm-pool-override').value = '';
   const list = document.getElementById('cm-members-list');
   list.innerHTML = '';
-  addMemberRow(); addMemberRow();
+  addNewMemberRow(); addNewMemberRow(); addNewMemberRow();
   document.getElementById('committee-modal').classList.remove('hidden');
 }
-function addMemberRow(name = '', phone = '') {
+function addNewMemberRow(name = '', phone = '') {
   const list = document.getElementById('cm-members-list');
   const row = document.createElement('div');
   row.className = 'member-row';
   row.innerHTML = `
-    <input type="text" class="mr-name" placeholder="Member name" value="${name}">
-    <input type="text" class="mr-phone" placeholder="Phone (e.g. 923001234567)" value="${phone}">
-    <button type="button" class="secondary mr-remove">✕</button>
+    <input type="text" class="mr-name" placeholder="Member name" value="${name}" style="margin-bottom:0;">
+    <input type="text" class="mr-phone" placeholder="Phone (92xxxxxxxxxx)" value="${phone}" style="margin-bottom:0;">
+    <button type="button" class="btn-secondary btn-sm mr-remove">✕</button>
   `;
   row.querySelector('.mr-remove').addEventListener('click', () => row.remove());
   list.appendChild(row);
 }
-document.getElementById('cm-add-member-row-btn').addEventListener('click', () => addMemberRow());
+document.getElementById('cm-add-member-row-btn').addEventListener('click', () => addNewMemberRow());
 document.getElementById('cm-cancel-btn').addEventListener('click', () => document.getElementById('committee-modal').classList.add('hidden'));
-
 document.getElementById('cm-save-btn').addEventListener('click', async () => {
   const name = document.getElementById('cm-name').value.trim();
   const start = document.getElementById('cm-start').value;
@@ -250,126 +310,200 @@ document.getElementById('cm-save-btn').addEventListener('click', async () => {
   const installment = Number(document.getElementById('cm-installment').value);
   const poolOverride = document.getElementById('cm-pool-override').value;
   if (!name || !start || !months || !installment) { alert('Please fill in name, start date, months and installment.'); return; }
-
-  const memberRows = Array.from(document.querySelectorAll('#cm-members-list .member-row')).map(row => ({
-    name: row.querySelector('.mr-name').value, phone: row.querySelector('.mr-phone').value
-  })).filter(m => m.name.trim());
-  if (memberRows.length === 0) { alert('Add at least one member.'); return; }
-
+  const memberRows = Array.from(document.querySelectorAll('#cm-members-list .member-row')).map(r => ({
+    name: r.querySelector('.mr-name').value.trim(),
+    phone: r.querySelector('.mr-phone').value.trim()
+  })).filter(m => m.name);
+  if (!memberRows.length) { alert('Add at least one member.'); return; }
   document.getElementById('committee-modal').classList.add('hidden');
-  const committee = await DB.addCommittee({
-    name, start_date: start, total_months: months, monthly_installment: installment,
-    pool_override: poolOverride === '' ? null : Number(poolOverride)
-  }, memberRows);
-  if (committee) { activeCommitteeId = committee.id; switchView('dashboard'); }
+  const c = await DB.addCommittee({ name, start_date: start, total_months: months, monthly_installment: installment, pool_override: poolOverride === '' ? null : Number(poolOverride) }, memberRows);
+  if (c) { activeCommitteeId = c.id; switchView('dashboard'); }
+});
+
+// ---- Edit Committee Modal ----
+function openEditCommitteeModal(c) {
+  document.getElementById('ecm-name').value = c.name;
+  document.getElementById('ecm-start').value = c.start_date;
+  document.getElementById('ecm-months').value = c.total_months;
+  document.getElementById('ecm-installment').value = c.monthly_installment;
+  document.getElementById('ecm-pool-override').value = c.pool_override || '';
+  const list = document.getElementById('ecm-members-list');
+  list.innerHTML = '';
+  DB.getMembersForCommittee(c.id).forEach(m => addEditMemberRow(m.id, m.name, m.phone));
+  document.getElementById('edit-committee-modal').dataset.committeeId = c.id;
+  document.getElementById('edit-committee-modal').classList.remove('hidden');
+}
+function addEditMemberRow(id = '', name = '', phone = '') {
+  const list = document.getElementById('ecm-members-list');
+  const row = document.createElement('div');
+  row.className = 'member-edit-row';
+  row.dataset.memberId = id;
+  row.innerHTML = `
+    <input type="text" class="ecm-mr-name" placeholder="Member name" value="${name || ''}" style="margin-bottom:0;">
+    <input type="text" class="ecm-mr-phone" placeholder="Phone" value="${phone || ''}" style="margin-bottom:0;">
+    <button type="button" class="btn-danger btn-sm ecm-mr-remove">✕</button>
+  `;
+  row.querySelector('.ecm-mr-remove').addEventListener('click', () => row.remove());
+  list.appendChild(row);
+}
+document.getElementById('ecm-add-member-btn').addEventListener('click', () => addEditMemberRow());
+document.getElementById('ecm-cancel-btn').addEventListener('click', () => document.getElementById('edit-committee-modal').classList.add('hidden'));
+document.getElementById('ecm-save-btn').addEventListener('click', async () => {
+  const cid = document.getElementById('edit-committee-modal').dataset.committeeId;
+  const name = document.getElementById('ecm-name').value.trim();
+  const start = document.getElementById('ecm-start').value;
+  const months = Number(document.getElementById('ecm-months').value);
+  const installment = Number(document.getElementById('ecm-installment').value);
+  const poolOverride = document.getElementById('ecm-pool-override').value;
+  if (!name || !start || !months || !installment) { alert('Please fill all required fields.'); return; }
+  document.getElementById('edit-committee-modal').classList.add('hidden');
+  await DB.updateCommittee(cid, { name, start_date: start, total_months: months, monthly_installment: installment, pool_override: poolOverride === '' ? null : Number(poolOverride) });
+  const rows = Array.from(document.querySelectorAll('#ecm-members-list .member-edit-row'));
+  for (const row of rows) {
+    const mId = row.dataset.memberId;
+    const mName = row.querySelector('.ecm-mr-name').value.trim();
+    const mPhone = row.querySelector('.ecm-mr-phone').value.trim();
+    if (!mName) continue;
+    if (mId) { await DB.updateMember(mId, { name: mName, phone: mPhone }); }
+    else { await DB.addMember(cid, mName, mPhone); }
+  }
+  await DB.syncFromServer();
 });
 
 // ============================================================
 // DASHBOARD VIEW
 // ============================================================
 function renderDashboardView() {
-  const c = activeCommittee();
-  if (!c) return;
+  const c = activeCommittee(); if (!c) return;
   const members = DB.getMembersForCommittee(c.id);
   const schedule = DB.getScheduleForCommittee(c.id);
-  const scheduleKeys = buildScheduleKeys(c.start_date, c.total_months);
+  const keys = buildScheduleKeys(c.start_date, c.total_months);
+  const today = todayMonthKey();
+  const activeMk = keys.reduce((acc, mk) => (mk <= today ? mk : acc), keys[0]);
 
   document.getElementById('dash-committee-name').textContent = c.name;
   document.getElementById('dash-committee-sub').textContent =
     `${members.length} members · ${c.total_months} months · ${fmtMoney(c.monthly_installment)}/month · Pool ${fmtMoney(computePool(c))}`;
 
-  // active month = latest schedule month that is <= today, else first month
-  const today = todayMonthKey();
-  let activeMonthKey = scheduleKeys[0];
-  scheduleKeys.forEach(mk => { if (mk <= today) activeMonthKey = mk; });
-
   const expected = members.length * Number(c.monthly_installment);
-  const collected = DB.cache.transactions.filter(t => t.committee_id === c.id && t.month_key === activeMonthKey && t.type === 'inflow_installment').reduce((s, t) => s + Number(t.amount), 0);
+  const collected = DB.cache.transactions.filter(t => t.committee_id === c.id && t.month_key === activeMk && t.type === 'inflow_installment').reduce((s, t) => s + Number(t.amount), 0);
   const disbursed = DB.cache.transactions.filter(t => t.committee_id === c.id && t.type === 'outflow_payout').reduce((s, t) => s + Number(t.amount), 0);
   const deficit = expected - collected;
 
-  document.getElementById('stat-expected').textContent = fmtMoney(expected) + ` (${monthLabel(activeMonthKey)})`;
+  document.getElementById('stat-expected').textContent = fmtMoney(expected);
   document.getElementById('stat-collected').textContent = fmtMoney(collected);
   document.getElementById('stat-disbursed').textContent = fmtMoney(disbursed);
-  const deficitEl = document.getElementById('stat-deficit');
-  deficitEl.textContent = fmtMoney(deficit);
-  deficitEl.className = deficit > 0 ? 'negative' : 'positive';
+  const defEl = document.getElementById('stat-deficit');
+  defEl.textContent = fmtMoney(deficit);
+  defEl.className = deficit > 0 ? 'negative' : 'positive';
 
   // Next in line
-  const nextRow = schedule.find(s => s.month_key === activeMonthKey) || schedule.find(s => s.status === 'pending');
+  const nextRow = schedule.find(s => s.month_key === activeMk) || schedule.find(s => s.status === 'pending');
   const nextBody = document.getElementById('next-in-line-body');
-  if (!nextRow) {
-    nextBody.innerHTML = '<p class="muted">No schedule found.</p>';
-  } else if (!nextRow.member_id) {
-    nextBody.innerHTML = `<p class="muted">Month: <strong>${monthLabel(nextRow.month_key)}</strong> — winner not yet drawn.</p>
-      <button class="primary small" onclick="switchView('qurandazi')" style="margin-top:8px;">Run Qurandazi</button>`;
+  if (!nextRow) { nextBody.innerHTML = '<p class="muted">Schedule not set up yet.</p>'; }
+  else if (!nextRow.member_id) {
+    nextBody.innerHTML = `<p class="muted" style="margin-bottom:10px;">Month: <strong>${monthLabel(nextRow.month_key)}</strong> — winner not yet drawn.</p>
+      <button class="btn-primary btn-sm" onclick="switchView('qurandazi')">🎟️ Run Qurandazi Now</button>`;
   } else {
-    const winner = members.find(m => m.id === nextRow.member_id);
+    const w = members.find(m => m.id === nextRow.member_id);
     nextBody.innerHTML = `
-      <div class="winner-name">${winner ? winner.name : 'Unknown'}</div>
-      <p class="muted">Month: ${monthLabel(nextRow.month_key)} · Payout: ${fmtMoney(nextRow.payout_amount)} ·
-      <span class="badge ${nextRow.status === 'paid' ? 'success' : 'warning'}">${nextRow.status}</span></p>`;
+      <div class="next-winner-name">${w ? w.name : 'Unknown'}</div>
+      <p class="muted" style="margin-top:6px;">${monthLabel(nextRow.month_key)} · ${fmtMoney(nextRow.payout_amount)}
+      · <span class="badge ${nextRow.status === 'paid' ? 'badge-success' : 'badge-warning'}">${nextRow.status}</span></p>`;
   }
 
-  // Lagging members this month
+  // Lagging members
+  const adminDetails = localStorage.getItem('bcms_admin_details_' + c.id) || '';
   const laggingWrap = document.getElementById('lagging-list');
   laggingWrap.innerHTML = '';
-  const admin = JSON.parse(localStorage.getItem('bcms_admin_details_' + c.id) || '""');
-  const lagging = members.filter(m => {
-    const cell = computeCellStatus(c, m.id, activeMonthKey);
-    return cell.status === 'unpaid' || cell.status === 'partial';
+  const lagging = members.filter(m => { const cell = computeCellStatus(c, m.id, activeMk); return cell.status === 'unpaid' || cell.status === 'partial'; });
+  if (!lagging.length) { laggingWrap.innerHTML = '<p class="muted">✅ Everyone is paid up this month!</p>'; return; }
+  lagging.forEach(m => {
+    const cell = computeCellStatus(c, m.id, activeMk);
+    const owes = cell.due - cell.paidSum;
+    const row = document.createElement('div');
+    row.className = 'lagging-row';
+    row.innerHTML = `
+      <div>
+        <strong>${m.name}</strong> &nbsp;
+        <span class="badge ${cell.status === 'partial' ? 'badge-warning' : 'badge-danger'}">${cell.status}</span>
+        <span class="muted" style="margin-left:8px;">Owes ${fmtMoney(owes)}</span>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn-secondary btn-sm" data-whatsapp>📱 WhatsApp</button>
+        <button class="btn-primary btn-sm" data-pay>💳 Pay Now</button>
+      </div>
+    `;
+    row.querySelector('[data-whatsapp]').addEventListener('click', () => sendWhatsAppReminder(c, m, activeMk, owes, adminDetails));
+    row.querySelector('[data-pay]').addEventListener('click', () => openPayModal(m.id, activeMk));
+    laggingWrap.appendChild(row);
   });
-  if (lagging.length === 0) {
-    laggingWrap.innerHTML = '<p class="muted">Everyone is paid up for this month. 🎉</p>';
-  } else {
-    lagging.forEach(m => {
-      const cell = computeCellStatus(c, m.id, activeMonthKey);
-      const due = cell.due - cell.paidSum;
-      const row = document.createElement('div');
-      row.className = 'row-between';
-      row.style.cssText = 'padding:10px 0; border-bottom:1px solid var(--border-color);';
-      row.innerHTML = `
-        <span>${m.name} — <span class="badge ${cell.status === 'partial' ? 'warning' : ''}">${cell.status}</span> · owes ${fmtMoney(due)}</span>
-        <button class="secondary small">📱 Remind on WhatsApp</button>
-      `;
-      row.querySelector('button').addEventListener('click', () => sendWhatsAppReminder(c, m, activeMonthKey, due, admin));
-      laggingWrap.appendChild(row);
-    });
-  }
 }
 
-function sendWhatsAppReminder(committee, member, monthKey, amountDue, adminDetails) {
-  if (!member.phone) { alert('This member has no phone number on file.'); return; }
+function sendWhatsAppReminder(c, member, mk, amountDue, adminDetails) {
+  if (!member.phone) { alert('No phone number for this member.'); return; }
   const phone = member.phone.replace(/[^0-9]/g, '');
-  let msg = `Assalam-o-Alaikum ${member.name}, your ${committee.name} BC installment of ${fmtMoney(amountDue)} for ${monthLabel(monthKey)} is still pending.`;
-  if (adminDetails) msg += `\nPlease pay to: ${adminDetails}`;
-  msg += `\nJazakAllah Khair.`;
+  let msg = `Assalam-o-Alaikum ${member.name},\n\nYour BC installment for *${c.name}* (${monthLabel(mk)}) is pending.\n*Amount due: ${fmtMoney(amountDue)}*\n`;
+  if (adminDetails) msg += `\nPlease pay to:\n${adminDetails}\n`;
+  msg += `\nJazakAllah Khair 🙏`;
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
 }
-
-document.getElementById('qa-record-payment').addEventListener('click', () => openPayModal(null, null));
-document.getElementById('qa-run-qurandazi').addEventListener('click', () => switchView('qurandazi'));
 
 // ============================================================
 // COLLECTION MATRIX VIEW
 // ============================================================
 function renderMatrixView() {
-  const c = activeCommittee();
-  if (!c) return;
-  const members = DB.getMembersForCommittee(c.id);
-  const scheduleKeys = buildScheduleKeys(c.start_date, c.total_months);
-  const table = document.getElementById('matrix-table');
+  const c = activeCommittee(); if (!c) return;
+  const allMembers = DB.getMembersForCommittee(c.id);
+  const filter = (document.getElementById('matrix-search')?.value || '').toLowerCase();
+  const members = filter ? allMembers.filter(m => m.name.toLowerCase().includes(filter)) : allMembers;
+  const keys = buildScheduleKeys(c.start_date, c.total_months);
+  const schedule = DB.getScheduleForCommittee(c.id);
+  const payoutMonthSet = new Set(schedule.filter(s => s.member_id).map(s => s.month_key + '::' + s.member_id));
 
-  let thead = '<thead><tr><th class="member-col">Member</th>' + scheduleKeys.map((mk, i) => `<th>M${i + 1}<br><span style="font-weight:400;">${monthLabel(mk)}</span></th>`).join('') + '</tr></thead>';
+  // Summary bar
+  const today = todayMonthKey();
+  const activeMk = keys.reduce((acc, mk) => (mk <= today ? mk : acc), keys[0]);
+  let totalFull = 0, totalPartial = 0, totalUnpaid = 0, totalCollected = 0;
+  allMembers.forEach(m => {
+    keys.forEach(mk => {
+      const cell = computeCellStatus(c, m.id, mk);
+      if (cell.status === 'full') totalFull++;
+      else if (cell.status === 'partial') totalPartial++;
+      else if (cell.status === 'unpaid') totalUnpaid++;
+      totalCollected += cell.paidSum;
+    });
+  });
+  const summaryEl = document.getElementById('matrix-summary');
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <div class="matrix-summary-box"><div class="msb-val" style="color:var(--success);">${totalFull}</div><div class="msb-lbl">Fully Paid</div></div>
+      <div class="matrix-summary-box"><div class="msb-val" style="color:var(--warning);">${totalPartial}</div><div class="msb-lbl">Partial</div></div>
+      <div class="matrix-summary-box"><div class="msb-val" style="color:var(--danger);">${totalUnpaid}</div><div class="msb-lbl">Unpaid</div></div>
+      <div class="matrix-summary-box"><div class="msb-val" style="color:var(--accent);">${fmtMoney(totalCollected)}</div><div class="msb-lbl">Total Collected</div></div>
+    `;
+  }
+
+  // Build table
+  const table = document.getElementById('matrix-table');
+  const thead = `<thead><tr>
+    <th class="member-col">Member</th>
+    ${keys.map((mk, i) => `<th style="text-align:center;">M${i+1}<br><span style="font-weight:400;font-size:0.65rem;">${monthLabel(mk)}</span></th>`).join('')}
+    <th>Total Paid</th>
+  </tr></thead>`;
+
   let tbody = '<tbody>';
   members.forEach(m => {
-    tbody += `<tr><td class="member-col">${m.name}</td>`;
-    scheduleKeys.forEach(mk => {
+    let memberTotal = 0;
+    const cells = keys.map(mk => {
       const cell = computeCellStatus(c, m.id, mk);
-      const label = cell.status === 'full' ? '✓' : cell.status === 'partial' ? fmtMoney(cell.paidSum).replace('Rs ', '') : cell.status === 'skipped' ? '—' : '✕';
-      tbody += `<td><div class="matrix-cell ${cell.status}" data-member="${m.id}" data-month="${mk}" title="${m.name} — ${monthLabel(mk)}: ${cell.status}">${label}</div></td>`;
-    });
-    tbody += '</tr>';
+      memberTotal += cell.paidSum;
+      const isPayoutMk = payoutMonthSet.has(mk + '::' + m.id);
+      const label = cell.status === 'full' ? '✓' : cell.status === 'partial' ? '½' : cell.status === 'skipped' ? '—' : '✕';
+      const amtLabel = cell.paidSum > 0 ? `<div class="matrix-cell-amount">${(cell.paidSum/1000).toFixed(0)}k</div>` : '';
+      return `<td><div class="matrix-cell ${cell.status}${isPayoutMk ? ' payout-month' : ''}" data-member="${m.id}" data-month="${mk}" title="${m.name} · ${monthLabel(mk)} · ${cell.status} · Paid ${fmtMoney(cell.paidSum)}">${label}${amtLabel}</div></td>`;
+    }).join('');
+    tbody += `<tr><td class="member-col">${m.name}${m.phone ? `<br><span style="font-size:0.72rem;color:var(--text3);">${m.phone}</span>` : ''}</td>${cells}<td style="font-weight:700;font-family:var(--mono);font-size:0.85rem;">${fmtMoney(memberTotal)}</td></tr>`;
   });
   tbody += '</tbody>';
   table.innerHTML = thead + tbody;
@@ -379,127 +513,123 @@ function renderMatrixView() {
   });
 }
 
-// ============================================================
-// PAYMENT MODAL (record / edit a member+month, supports split payments)
-// ============================================================
-function openPayModal(memberId, monthKey) {
-  const c = activeCommittee();
-  if (!c) return;
+function exportMatrixPdf() {
+  const c = activeCommittee(); if (!c) return;
   const members = DB.getMembersForCommittee(c.id);
-  const scheduleKeys = buildScheduleKeys(c.start_date, c.total_months);
-
-  const memberSelect = document.getElementById('pay-member-select');
-  memberSelect.innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
-  if (memberId) memberSelect.value = memberId;
-
-  const monthSelect = document.getElementById('pay-month-select');
-  monthSelect.innerHTML = scheduleKeys.map(mk => `<option value="${mk}">${monthLabel(mk)}</option>`).join('');
-  if (monthKey) monthSelect.value = monthKey;
-
-  document.getElementById('pay-modal-title').textContent = 'Record Payment';
-  loadPayModalData();
-  memberSelect.addEventListener('change', loadPayModalData);
-  monthSelect.addEventListener('change', loadPayModalData);
-
-  document.getElementById('pay-modal').classList.remove('hidden');
+  const keys = buildScheduleKeys(c.start_date, c.total_months);
+  const statusIcon = { full: '✓', partial: '½', unpaid: '✕', skipped: '—' };
+  const statusColor = { full: '#059669', partial: '#d97706', unpaid: '#dc2626', skipped: '#6b7280' };
+  let rows = members.map(m => {
+    const cells = keys.map(mk => {
+      const cell = computeCellStatus(c, m.id, mk);
+      return `<td style="text-align:center;background:${statusColor[cell.status]}20;color:${statusColor[cell.status]};font-weight:700;">${statusIcon[cell.status]}</td>`;
+    }).join('');
+    return `<tr><td style="font-weight:600;">${m.name}</td>${cells}</tr>`;
+  }).join('');
+  const html = `<div class="pdf-doc" style="width:100%;">
+    <h1>${c.name} — Collection Matrix</h1>
+    <p class="pdf-meta">Generated: ${todayDateStr()} · ${members.length} members · ${c.total_months} months</p>
+    <table><thead><tr><th>Member</th>${keys.map((mk,i) => `<th style="text-align:center;">M${i+1}<br>${monthLabel(mk)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
+  </div>`;
+  renderPdf(html, `${c.name.replace(/\s+/g,'_')}_matrix.pdf`);
 }
 
+// ============================================================
+// PAYMENT MODAL
+// ============================================================
+function openPayModal(memberId, monthKey) {
+  const c = activeCommittee(); if (!c) return;
+  const members = DB.getMembersForCommittee(c.id);
+  const keys = buildScheduleKeys(c.start_date, c.total_months);
+  const mSel = document.getElementById('pay-member-select');
+  const mkSel = document.getElementById('pay-month-select');
+  mSel.innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+  mkSel.innerHTML = keys.map(mk => `<option value="${mk}">${monthLabel(mk)}</option>`).join('');
+  if (memberId) mSel.value = memberId;
+  if (monthKey) mkSel.value = monthKey;
+  loadPayModalData();
+  mSel.onchange = loadPayModalData;
+  mkSel.onchange = loadPayModalData;
+  document.getElementById('pay-modal').classList.remove('hidden');
+}
 function loadPayModalData() {
   const c = activeCommittee();
   const memberId = document.getElementById('pay-member-select').value;
-  const monthKey = document.getElementById('pay-month-select').value;
-  const member = DB.cache.members.find(m => m.id === memberId);
-  document.getElementById('pay-modal-title').textContent = member ? `${member.name} — ${monthLabel(monthKey)}` : 'Record Payment';
-
-  const txs = DB.cache.transactions.filter(t => t.committee_id === c.id && t.member_id === memberId && t.month_key === monthKey && t.type === 'inflow_installment');
+  const mk = document.getElementById('pay-month-select').value;
+  const m = DB.cache.members.find(x => x.id === memberId);
+  document.getElementById('pay-modal-title').textContent = m ? `💳 ${m.name} — ${monthLabel(mk)}` : '💳 Record Payment';
+  const txs = DB.cache.transactions.filter(t => t.committee_id === c.id && t.member_id === memberId && t.month_key === mk && t.type === 'inflow_installment');
   const skipped = txs.some(t => (t.notes || '').toUpperCase().includes('SKIPPED'));
-  const existingNotes = txs.length ? (txs[0].notes || '').replace(/^SKIPPED\s*\|?\s*/i, '') : '';
-
-  document.getElementById('pay-notes').value = existingNotes;
+  document.getElementById('pay-notes').value = txs.length ? (txs[0].notes || '').replace(/^SKIPPED\s*\|?\s*/i, '') : '';
   document.getElementById('pay-skipped').checked = skipped;
-
   const linesWrap = document.getElementById('pay-lines');
   linesWrap.innerHTML = '';
   const lines = (!skipped && txs.length) ? txs.map(t => ({ amount: t.amount, date: t.transaction_date })) : [{ amount: '', date: todayDateStr() }];
   lines.forEach(l => addPayLine(l.amount, l.date));
 }
-
 function addPayLine(amount = '', date = '') {
   const wrap = document.getElementById('pay-lines');
   const row = document.createElement('div');
   row.className = 'payment-line';
   row.innerHTML = `
-    <input type="number" class="pl-amount" placeholder="Amount (Rs)" value="${amount}">
-    <input type="date" class="pl-date" value="${date || todayDateStr()}">
-    <button type="button" class="secondary pl-remove">✕</button>
+    <input type="number" class="pl-amount" placeholder="Amount (Rs)" value="${amount}" style="margin-bottom:0;">
+    <input type="date" class="pl-date" value="${date || todayDateStr()}" style="margin-bottom:0;">
+    <button type="button" class="btn-secondary btn-sm pl-remove">✕</button>
   `;
   row.querySelector('.pl-remove').addEventListener('click', () => row.remove());
   wrap.appendChild(row);
 }
 document.getElementById('pay-add-line-btn').addEventListener('click', () => addPayLine());
 document.getElementById('pay-cancel-btn').addEventListener('click', () => document.getElementById('pay-modal').classList.add('hidden'));
-
 document.getElementById('pay-save-btn').addEventListener('click', async () => {
   const c = activeCommittee();
   const memberId = document.getElementById('pay-member-select').value;
-  const monthKey = document.getElementById('pay-month-select').value;
+  const mk = document.getElementById('pay-month-select').value;
   const notes = document.getElementById('pay-notes').value;
   const skipped = document.getElementById('pay-skipped').checked;
-  const lines = Array.from(document.querySelectorAll('#pay-lines .payment-line')).map(row => ({
-    amount: row.querySelector('.pl-amount').value, date: row.querySelector('.pl-date').value
-  }));
+  const lines = Array.from(document.querySelectorAll('#pay-lines .payment-line')).map(r => ({ amount: r.querySelector('.pl-amount').value, date: r.querySelector('.pl-date').value }));
   document.getElementById('pay-modal').classList.add('hidden');
-  await DB.setPaymentLines(c.id, memberId, monthKey, lines, notes, skipped);
+  await DB.setPaymentLines(c.id, memberId, mk, lines, notes, skipped);
 });
 
 // ============================================================
-// QURANDAZI (LUCKY DRAW) STUDIO
+// QURANDAZI VIEW
 // ============================================================
 function renderQurandaziView() {
-  const c = activeCommittee();
-  if (!c) return;
+  const c = activeCommittee(); if (!c) return;
   const schedule = DB.getScheduleForCommittee(c.id);
   const members = DB.getMembersForCommittee(c.id);
-  const drawnMemberIds = new Set(schedule.filter(s => s.member_id).map(s => s.member_id));
-  const eligibleMembers = members.filter(m => !drawnMemberIds.has(m.id));
-  const undrawnMonths = schedule.filter(s => !s.member_id);
+  const drawnIds = new Set(schedule.filter(s => s.member_id).map(s => s.member_id));
+  const eligible = members.filter(m => !drawnIds.has(m.id));
+  const undrawn = schedule.filter(s => !s.member_id);
 
-  const monthSelect = document.getElementById('qd-month-select');
-  monthSelect.innerHTML = undrawnMonths.map(s => `<option value="${s.id}">${monthLabel(s.month_key)}</option>`).join('');
-  document.getElementById('qd-run-draw-btn').disabled = undrawnMonths.length === 0 || eligibleMembers.length === 0;
+  const mkSel = document.getElementById('qd-month-select');
+  mkSel.innerHTML = undrawn.length ? undrawn.map(s => `<option value="${s.id}">${monthLabel(s.month_key)}</option>`).join('') : '<option>All months assigned</option>';
 
-  const manualSelect = document.getElementById('qd-manual-member-select');
-  manualSelect.innerHTML = eligibleMembers.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
-
+  document.getElementById('qd-run-draw-btn').disabled = !undrawn.length || !eligible.length;
+  document.getElementById('qd-manual-member-select').innerHTML = eligible.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
   document.getElementById('qd-draw-box').classList.add('hidden');
   document.getElementById('qd-winner').classList.add('hidden');
   document.getElementById('qd-manual-wrap').classList.add('hidden');
 
-  // Schedule table
   const tbody = document.getElementById('qd-schedule-body');
   tbody.innerHTML = '';
   schedule.forEach(s => {
     const member = members.find(m => m.id === s.member_id);
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${monthLabel(s.month_key)}</td>
+      <td><strong>${monthLabel(s.month_key)}</strong></td>
       <td>${member ? member.name : '<span class="muted">Not drawn</span>'}</td>
-      <td>${s.draw_type ? `<span class="badge">${s.draw_type}</span>` : '—'}</td>
+      <td>${s.draw_type ? `<span class="badge badge-accent">${s.draw_type}</span>` : '—'}</td>
       <td>${s.payout_amount != null ? fmtMoney(s.payout_amount) : '—'}</td>
-      <td><span class="badge ${s.status === 'paid' ? 'success' : 'warning'}">${s.status}</span></td>
-      <td>${(s.member_id && s.status === 'pending') ? '<button class="primary small" data-action="mark-paid">Mark Paid</button>' : ''}</td>
+      <td><span class="badge ${s.status === 'paid' ? 'badge-success' : 'badge-warning'}">${s.status}</span></td>
+      <td>${(s.member_id && s.status === 'pending') ? '<button class="btn-success btn-sm">✅ Mark Paid</button>' : ''}</td>
     `;
-    if (s.member_id && s.status === 'pending') {
-      tr.querySelector('[data-action="mark-paid"]').addEventListener('click', () => openPayoutModal(s));
-    }
+    if (s.member_id && s.status === 'pending') tr.querySelector('button').addEventListener('click', () => openPayoutModal(s));
     tbody.appendChild(tr);
   });
 }
-
-document.getElementById('qd-manual-toggle-btn').addEventListener('click', () => {
-  document.getElementById('qd-manual-wrap').classList.toggle('hidden');
-});
-
+document.getElementById('qd-manual-toggle-btn').addEventListener('click', () => document.getElementById('qd-manual-wrap').classList.toggle('hidden'));
 document.getElementById('qd-manual-confirm-btn').addEventListener('click', async () => {
   const scheduleId = document.getElementById('qd-month-select').value;
   const memberId = document.getElementById('qd-manual-member-select').value;
@@ -507,44 +637,37 @@ document.getElementById('qd-manual-confirm-btn').addEventListener('click', async
   await DB.assignDraw(scheduleId, memberId, 'manual');
   renderQurandaziView();
 });
-
 document.getElementById('qd-run-draw-btn').addEventListener('click', () => {
   const c = activeCommittee();
   const scheduleId = document.getElementById('qd-month-select').value;
   if (!scheduleId) return;
   const schedule = DB.getScheduleForCommittee(c.id);
   const members = DB.getMembersForCommittee(c.id);
-  const drawnMemberIds = new Set(schedule.filter(s => s.member_id).map(s => s.member_id));
-  const eligibleMembers = members.filter(m => !drawnMemberIds.has(m.id));
-  if (eligibleMembers.length === 0) { alert('No eligible members left to draw.'); return; }
-
+  const drawnIds = new Set(schedule.filter(s => s.member_id).map(s => s.member_id));
+  const eligible = members.filter(m => !drawnIds.has(m.id));
+  if (!eligible.length) { alert('No eligible members left.'); return; }
   const box = document.getElementById('qd-draw-box');
   const slipsWrap = document.getElementById('qd-slips');
   const winnerWrap = document.getElementById('qd-winner');
   box.classList.remove('hidden');
   winnerWrap.classList.add('hidden');
-  slipsWrap.innerHTML = eligibleMembers.map(m => `<div class="slip" data-member="${m.id}">${m.name}</div>`).join('');
-
+  slipsWrap.innerHTML = eligible.map(m => `<div class="slip" data-member="${m.id}">${m.name}</div>`).join('');
   document.getElementById('qd-run-draw-btn').disabled = true;
-  const winner = eligibleMembers[Math.floor(Math.random() * eligibleMembers.length)];
-
+  const winner = eligible[Math.floor(Math.random() * eligible.length)];
   setTimeout(async () => {
     slipsWrap.querySelectorAll('.slip').forEach(slip => {
-      slip.classList.add('settled');
-      if (slip.dataset.member === winner.id) slip.classList.remove('settled');
+      if (slip.dataset.member !== winner.id) slip.classList.add('settled');
     });
     winnerWrap.textContent = `🎉 ${winner.name} wins this round!`;
     winnerWrap.classList.remove('hidden');
     await DB.assignDraw(scheduleId, winner.id, 'qurandazi');
     document.getElementById('qd-run-draw-btn').disabled = false;
-    renderQurandaziView();
-  }, 1800);
+    setTimeout(() => renderQurandaziView(), 2000);
+  }, 2000);
 });
-
 function openPayoutModal(scheduleRow) {
   const member = DB.cache.members.find(m => m.id === scheduleRow.member_id);
-  document.getElementById('payout-modal-info').textContent =
-    `${member ? member.name : 'Member'} — ${monthLabel(scheduleRow.month_key)}`;
+  document.getElementById('payout-modal-info').textContent = `${member ? member.name : 'Member'} — ${monthLabel(scheduleRow.month_key)}`;
   document.getElementById('payout-amount-input').value = scheduleRow.payout_amount || 0;
   document.getElementById('payout-date-input').value = todayDateStr();
   document.getElementById('payout-modal').dataset.scheduleId = scheduleRow.id;
@@ -552,91 +675,77 @@ function openPayoutModal(scheduleRow) {
 }
 document.getElementById('payout-cancel-btn').addEventListener('click', () => document.getElementById('payout-modal').classList.add('hidden'));
 document.getElementById('payout-confirm-btn').addEventListener('click', async () => {
-  const scheduleId = document.getElementById('payout-modal').dataset.scheduleId;
+  const sid = document.getElementById('payout-modal').dataset.scheduleId;
   const amount = Number(document.getElementById('payout-amount-input').value);
-  const dateStr = document.getElementById('payout-date-input').value;
+  const date = document.getElementById('payout-date-input').value;
   document.getElementById('payout-modal').classList.add('hidden');
-  await DB.markPayoutPaid(scheduleId, amount, dateStr);
+  await DB.markPayoutPaid(sid, amount, date);
   renderQurandaziView();
 });
 
 // ============================================================
-// REPORTS VIEW + PDF EXPORT
+// REPORTS VIEW
 // ============================================================
 function renderReportsView() {
-  const c = activeCommittee();
-  if (!c) return;
+  const c = activeCommittee(); if (!c) return;
   const members = DB.getMembersForCommittee(c.id);
   document.getElementById('report-member-select').innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
   document.getElementById('admin-payment-details').value = localStorage.getItem('bcms_admin_details_' + c.id) || '';
 }
-
 document.getElementById('save-admin-details-btn').addEventListener('click', () => {
   const c = activeCommittee();
   localStorage.setItem('bcms_admin_details_' + c.id, document.getElementById('admin-payment-details').value);
-  alert('Saved.');
+  alert('Saved!');
 });
-
 document.getElementById('export-member-pdf-btn').addEventListener('click', () => {
   const c = activeCommittee();
   const memberId = document.getElementById('report-member-select').value;
   const member = DB.cache.members.find(m => m.id === memberId);
   if (!member) return;
   const ledger = computeMemberLedger(c, member);
-
-  const rowsHtml = ledger.rows.map(r => `
-    <tr>
-      <td>${monthLabel(r.monthKey)}</td>
-      <td>${fmtMoney(r.due)}</td>
-      <td>${fmtMoney(r.paid)}</td>
-      <td style="text-transform:capitalize;">${r.status}${r.isPayoutMonth ? ' (Payout Month)' : ''}</td>
-      <td style="color:${r.balance < 0 ? '#b91c1c' : '#047857'};">${fmtMoney(r.balance)}</td>
-    </tr>`).join('');
-
-  const html = `
-    <div class="pdf-doc">
-      <h1>${c.name} — Member Ledger</h1>
-      <p class="pdf-meta">Member: <strong>${member.name}</strong> ${member.phone ? '(' + member.phone + ')' : ''}<br>
-      Generated: ${todayDateStr()} · Installment: ${fmtMoney(c.monthly_installment)}/month · Total months: ${c.total_months}</p>
-      <h2>Payout</h2>
-      <p>${ledger.payoutRow && ledger.payoutRow.member_id ? `Scheduled: ${monthLabel(ledger.payoutRow.month_key)} · Amount: ${fmtMoney(ledger.payoutRow.payout_amount)} · Status: ${ledger.payoutRow.status}` : 'Not yet drawn.'}</p>
-      <h2>Monthly Ledger</h2>
-      <table>
-        <thead><tr><th>Month</th><th>Due</th><th>Paid</th><th>Status</th><th>Balance</th></tr></thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-    </div>`;
-  renderPdf(html, `${c.name.replace(/\s+/g, '_')}_${member.name.replace(/\s+/g, '_')}_ledger.pdf`);
+  const statusColor = { full: '#059669', partial: '#d97706', unpaid: '#dc2626', skipped: '#6b7280' };
+  const rowsHtml = ledger.rows.map(r => `<tr>
+    <td>${monthLabel(r.monthKey)}</td>
+    <td>${fmtMoney(r.due)}</td>
+    <td>${fmtMoney(r.paid)}</td>
+    <td style="color:${statusColor[r.status]};font-weight:600;">${r.status}${r.isPayoutMonth ? ' 🏆' : ''}</td>
+    <td style="font-weight:700;color:${r.balance < 0 ? '#dc2626' : '#059669'};">${fmtMoney(r.balance)}</td>
+  </tr>`).join('');
+  const html = `<div class="pdf-doc">
+    <h1>${c.name} — Member Ledger</h1>
+    <p class="pdf-meta">Member: <strong>${member.name}</strong>${member.phone ? ' · ' + member.phone : ''}<br>
+    Generated: ${todayDateStr()} · Installment: ${fmtMoney(c.monthly_installment)}/month · Total: ${c.total_months} months</p>
+    <h2>Payout Assignment</h2>
+    <p>${ledger.payoutRow?.member_id ? `Month: ${monthLabel(ledger.payoutRow.month_key)} · Amount: ${fmtMoney(ledger.payoutRow.payout_amount)} · Status: ${ledger.payoutRow.status}` : 'Not yet assigned.'}</p>
+    <h2>Monthly Ledger</h2>
+    <table><thead><tr><th>Month</th><th>Due</th><th>Paid</th><th>Status</th><th>Balance</th></tr></thead><tbody>${rowsHtml}</tbody></table>
+    <h2>Summary</h2>
+    <table><tr><th>Total Due</th><th>Total Paid</th><th>Remaining</th></tr>
+    <tr><td>${fmtMoney(ledger.totalDue)}</td><td>${fmtMoney(ledger.totalPaid)}</td><td style="font-weight:700;">${fmtMoney(ledger.totalDue - ledger.totalPaid)}</td></tr></table>
+  </div>`;
+  renderPdf(html, `${c.name.replace(/\s+/g,'_')}_${member.name.replace(/\s+/g,'_')}_ledger.pdf`);
 });
-
 document.getElementById('export-master-pdf-btn').addEventListener('click', () => {
   const c = activeCommittee();
   const members = DB.getMembersForCommittee(c.id);
-  const scheduleKeys = buildScheduleKeys(c.start_date, c.total_months);
-
-  let cumulativeCash = 0;
-  const rowsHtml = scheduleKeys.map(mk => {
+  const keys = buildScheduleKeys(c.start_date, c.total_months);
+  let cumCash = 0;
+  const rows = keys.map(mk => {
     const inflow = DB.cache.transactions.filter(t => t.committee_id === c.id && t.month_key === mk && t.type === 'inflow_installment').reduce((s, t) => s + Number(t.amount), 0);
     const outflow = DB.cache.transactions.filter(t => t.committee_id === c.id && t.month_key === mk && t.type === 'outflow_payout').reduce((s, t) => s + Number(t.amount), 0);
-    cumulativeCash += inflow - outflow;
-    return `<tr><td>${monthLabel(mk)}</td><td>${fmtMoney(inflow)}</td><td>${fmtMoney(outflow)}</td><td>${fmtMoney(inflow - outflow)}</td><td>${fmtMoney(cumulativeCash)}</td></tr>`;
+    cumCash += inflow - outflow;
+    return `<tr><td>${monthLabel(mk)}</td><td style="color:#059669;">${fmtMoney(inflow)}</td><td style="color:#dc2626;">${outflow > 0 ? fmtMoney(outflow) : '—'}</td><td>${fmtMoney(inflow - outflow)}</td><td style="font-weight:700;color:${cumCash >= 0 ? '#059669' : '#dc2626'};">${fmtMoney(cumCash)}</td></tr>`;
   }).join('');
-
-  const html = `
-    <div class="pdf-doc">
-      <h1>${c.name} — Master Cashflow Report</h1>
-      <p class="pdf-meta">Generated: ${todayDateStr()} · ${members.length} members · Pool per draw: ${fmtMoney(computePool(c))}</p>
-      <h2>Month-by-Month Cashflow</h2>
-      <table>
-        <thead><tr><th>Month</th><th>Inflow (Collected)</th><th>Outflow (Payout)</th><th>Net</th><th>Cash on Hand (Cumulative)</th></tr></thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-    </div>`;
-  renderPdf(html, `${c.name.replace(/\s+/g, '_')}_master_cashflow.pdf`);
+  const html = `<div class="pdf-doc">
+    <h1>${c.name} — Master Cashflow Report</h1>
+    <p class="pdf-meta">Generated: ${todayDateStr()} · ${members.length} members · Pool per draw: ${fmtMoney(computePool(c))}</p>
+    <table><thead><tr><th>Month</th><th>Inflow</th><th>Outflow</th><th>Net</th><th>Cash on Hand</th></tr></thead><tbody>${rows}</tbody></table>
+  </div>`;
+  renderPdf(html, `${c.name.replace(/\s+/g,'_')}_cashflow.pdf`);
 });
 
 function renderPdf(html, filename) {
   const area = document.getElementById('pdf-render-area');
   area.innerHTML = html;
-  html2pdf().from(area).set({ filename, margin: 10, html2canvas: { scale: 2 } }).save();
+  html2pdf().from(area).set({ filename, margin: 10, html2canvas: { scale: 2 }, jsPDF: { orientation: 'landscape' } }).save();
 }

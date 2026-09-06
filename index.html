@@ -5,46 +5,83 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BC Management System</title>
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
+
+<!-- Mobile hamburger -->
+<button class="hamburger" id="hamburger-btn" aria-label="Menu">☰</button>
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
 
 <!-- AUTH SCREEN -->
 <div id="auth-screen" class="screen">
   <div class="auth-box">
     <h2>BC Management System</h2>
-    <p class="muted">Committee ledger &amp; payout admin</p>
-    <input type="email" id="email" placeholder="Email">
+    <p class="muted" style="margin-bottom:20px;">Committee ledger &amp; payout admin</p>
+    <input type="email" id="email" placeholder="Email address">
     <input type="password" id="password" placeholder="Password">
-    <button id="login-btn" class="primary full">Login</button>
-    <button id="signup-btn" class="secondary full">Sign Up</button>
+    <div class="auth-btns">
+      <button id="login-btn" class="btn-primary" style="flex:1; padding:11px; justify-content:center;">Login</button>
+      <button id="signup-btn" class="btn-secondary" style="flex:1; padding:11px; justify-content:center;">Sign Up</button>
+    </div>
   </div>
 </div>
 
 <!-- APP LAYOUT -->
 <div id="app-screen" class="screen hidden layout">
-  <aside class="sidebar">
-    <h2>BC Management</h2>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <h2>BC Manager</h2>
+      <span class="brand-icon">🏦</span>
+    </div>
+
     <div class="committee-select-wrap">
       <label>Active committee</label>
       <select id="active-committee-select"></select>
     </div>
+
     <nav>
-      <a href="#committees" id="nav-committees" class="active">Committees</a>
-      <a href="#dashboard" id="nav-dashboard">Dashboard</a>
-      <a href="#matrix" id="nav-matrix">Collection Matrix</a>
-      <a href="#qurandazi" id="nav-qurandazi">Qurandazi</a>
-      <a href="#reports" id="nav-reports">Reports</a>
-      <a href="#logout" id="logout-btn" class="logout-link">Logout</a>
+      <a href="#committees" id="nav-committees" class="active">
+        <span class="nav-icon">🏠</span> Committees
+      </a>
+      <a href="#dashboard" id="nav-dashboard">
+        <span class="nav-icon">📊</span> Dashboard
+      </a>
+      <a href="#matrix" id="nav-matrix">
+        <span class="nav-icon">📋</span> Collection Matrix
+      </a>
+      <a href="#qurandazi" id="nav-qurandazi">
+        <span class="nav-icon">🎟️</span> Qurandazi
+      </a>
+      <a href="#reports" id="nav-reports">
+        <span class="nav-icon">📄</span> Reports
+      </a>
+      <a href="#logout" id="logout-btn" class="logout-link">
+        <span class="nav-icon">🚪</span> Logout
+      </a>
     </nav>
+
+    <div class="sidebar-footer">
+      <button id="theme-btn">🌙 <span id="theme-label">Dark Mode</span></button>
+    </div>
   </aside>
 
+  <!-- MAIN CONTENT -->
   <main class="content">
 
     <!-- COMMITTEES VIEW -->
     <section id="view-committees">
       <header>
-        <h1>My Committees</h1>
-        <button id="add-committee-btn" class="primary">+ New Committee</button>
+        <div>
+          <h1>My Committees</h1>
+          <p class="muted">Manage all your BC / ROSCA committees</p>
+        </div>
+        <div class="btn-row">
+          <button id="add-committee-btn" class="btn-primary">➕ New Committee</button>
+        </div>
       </header>
       <div id="committees-grid" class="grid"></div>
     </section>
@@ -57,76 +94,86 @@
           <p class="muted" id="dash-committee-sub"></p>
         </div>
         <div class="btn-row">
-          <button id="qa-new-committee" class="secondary">New Committee</button>
-          <button id="qa-record-payment" class="secondary">Record Payment</button>
-          <button id="qa-run-qurandazi" class="primary">Run Qurandazi</button>
+          <button id="qa-record-payment" class="btn-secondary">💳 Record Payment</button>
+          <button id="qa-run-qurandazi" class="btn-primary">🎟️ Run Qurandazi</button>
         </div>
       </header>
 
       <div class="stats-grid">
-        <div class="stat-box"><h3>Expected This Month</h3><p id="stat-expected">—</p></div>
-        <div class="stat-box"><h3>Collected This Month</h3><p id="stat-collected">—</p></div>
-        <div class="stat-box"><h3>Total Disbursed</h3><p id="stat-disbursed">—</p></div>
-        <div class="stat-box"><h3>Pending Deficit</h3><p id="stat-deficit">—</p></div>
+        <div class="stat-box"><span class="stat-icon">📥</span><h3>Expected This Month</h3><p id="stat-expected">—</p></div>
+        <div class="stat-box success"><span class="stat-icon">✅</span><h3>Collected This Month</h3><p id="stat-collected">—</p></div>
+        <div class="stat-box warning"><span class="stat-icon">📤</span><h3>Total Disbursed</h3><p id="stat-disbursed">—</p></div>
+        <div class="stat-box danger"><span class="stat-icon">⚠️</span><h3>Pending Deficit</h3><p id="stat-deficit">—</p></div>
       </div>
 
-      <div class="card next-in-line">
-        <h3>Next In Line</h3>
+      <div class="next-card">
+        <h3>🎯 Next In Line</h3>
         <div id="next-in-line-body">—</div>
       </div>
 
       <div class="card">
-        <div class="row-between">
-          <h3 style="margin:0;">Lagging Members This Month</h3>
-        </div>
-        <div id="lagging-list" style="margin-top:12px;"></div>
+        <h3 style="margin-bottom:12px;">⚠️ Lagging Members This Month</h3>
+        <div id="lagging-list"></div>
       </div>
     </section>
 
     <!-- COLLECTION MATRIX VIEW -->
     <section id="view-matrix" class="hidden">
       <header>
-        <h1>Collection Matrix</h1>
+        <div>
+          <h1>Collection Matrix</h1>
+          <p class="muted">Click any cell to record or update a payment</p>
+        </div>
       </header>
-      <p class="muted" style="margin-bottom:16px;">Click any cell to record or edit a member's payment for that month.</p>
-      <div class="table-container matrix-wrap">
+
+      <div class="matrix-summary" id="matrix-summary"></div>
+
+      <div class="matrix-controls">
+        <input type="text" id="matrix-search" class="matrix-search" placeholder="🔍 Filter members..." style="margin-bottom:0;">
+        <button id="matrix-export-btn" class="btn-secondary btn-sm">📊 Export Matrix PDF</button>
+      </div>
+
+      <div class="matrix-wrap table-container">
         <table id="matrix-table"></table>
       </div>
+
       <div class="legend">
-        <span><i class="dot full"></i> Full</span>
-        <span><i class="dot partial"></i> Partial</span>
-        <span><i class="dot unpaid"></i> Unpaid</span>
-        <span><i class="dot skipped"></i> Skipped</span>
+        <div class="legend-item"><div class="legend-dot ld-full"></div> Fully Paid</div>
+        <div class="legend-item"><div class="legend-dot ld-partial"></div> Partial</div>
+        <div class="legend-item"><div class="legend-dot ld-unpaid"></div> Unpaid</div>
+        <div class="legend-item"><div class="legend-dot ld-skipped"></div> Skipped</div>
+        <div class="legend-item"><div class="legend-dot ld-payout"></div> Payout Month</div>
       </div>
     </section>
 
     <!-- QURANDAZI VIEW -->
     <section id="view-qurandazi" class="hidden">
-      <header><h1>Qurandazi (Lucky Draw) Studio</h1></header>
+      <header><h1>🎟️ Qurandazi Studio</h1></header>
 
       <div class="card">
         <label>Month to draw for</label>
         <select id="qd-month-select"></select>
-        <div class="btn-row" style="margin-top:14px;">
-          <button id="qd-run-draw-btn" class="primary">🎟️ Run Qurandazi Draw</button>
-          <button id="qd-manual-toggle-btn" class="secondary">Manual Assign Instead</button>
+        <div class="btn-row" style="margin-top:12px;">
+          <button id="qd-run-draw-btn" class="btn-primary">🎲 Run Qurandazi Draw</button>
+          <button id="qd-manual-toggle-btn" class="btn-secondary">✏️ Manual Assign</button>
         </div>
-        <div id="qd-manual-wrap" class="hidden" style="margin-top:14px;">
+        <div id="qd-manual-wrap" class="hidden" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--border);">
           <label>Manually assign member</label>
           <select id="qd-manual-member-select"></select>
-          <button id="qd-manual-confirm-btn" class="primary">Assign Member</button>
+          <button id="qd-manual-confirm-btn" class="btn-success">✅ Assign Member</button>
         </div>
       </div>
 
       <div id="qd-draw-box" class="draw-box hidden">
+        <p class="muted" style="margin-bottom:16px;">Shake, shake, shake… 🎰</p>
         <div id="qd-slips" class="slips"></div>
         <div id="qd-winner" class="winner hidden"></div>
       </div>
 
-      <h3 style="margin:24px 0 12px;">Schedule</h3>
+      <h3 style="margin:24px 0 12px; font-size:1rem;">📅 Payout Schedule</h3>
       <div class="table-container">
         <table>
-          <thead><tr><th>Month</th><th>Member</th><th>Draw Type</th><th>Payout</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Month</th><th>Member</th><th>Draw Type</th><th>Payout</th><th>Status</th><th>Action</th></tr></thead>
           <tbody id="qd-schedule-body"></tbody>
         </table>
       </div>
@@ -134,111 +181,126 @@
 
     <!-- REPORTS VIEW -->
     <section id="view-reports" class="hidden">
-      <header><h1>Reports &amp; PDF Export</h1></header>
+      <header><h1>📄 Reports &amp; Export</h1></header>
 
       <div class="card">
-        <h3>Master Committee Cashflow</h3>
-        <p class="muted">Full month-by-month inflow / outflow / net cash on hand.</p>
-        <button id="export-master-pdf-btn" class="primary" style="margin-top:10px;">Export Master Cashflow PDF</button>
+        <h3>📊 Master Committee Cashflow</h3>
+        <p class="muted" style="margin:8px 0 14px;">Full month-by-month inflow / outflow / net cash on hand for the entire committee.</p>
+        <button id="export-master-pdf-btn" class="btn-primary">⬇️ Export Master Cashflow PDF</button>
       </div>
 
       <div class="card">
-        <h3>Member Ledger</h3>
+        <h3>👤 Member Ledger</h3>
         <label>Select member</label>
         <select id="report-member-select"></select>
-        <button id="export-member-pdf-btn" class="primary" style="margin-top:10px;">Export Member Ledger PDF</button>
+        <button id="export-member-pdf-btn" class="btn-primary" style="margin-top:4px;">⬇️ Export Member Ledger PDF</button>
       </div>
 
       <div class="card">
-        <h3>Admin Payment Details (used in WhatsApp reminders)</h3>
+        <h3>📱 Admin Payment Details</h3>
+        <p class="muted" style="margin:8px 0 12px;">Used in WhatsApp reminder messages sent to lagging members.</p>
         <textarea id="admin-payment-details" rows="3" placeholder="e.g. EasyPaisa: 0300-1234567 (Admin Name) / Bank: Meezan 01234567890123"></textarea>
-        <button id="save-admin-details-btn" class="secondary">Save Details</button>
+        <button id="save-admin-details-btn" class="btn-secondary">💾 Save Details</button>
       </div>
     </section>
 
   </main>
 </div>
 
-<!-- ============ MODALS ============ -->
+<!-- ============================================================
+     MODALS
+     ============================================================ -->
 
 <!-- New Committee Modal -->
 <div id="committee-modal" class="modal hidden">
   <div class="modal-content">
-    <h3>New Committee</h3>
+    <h3>➕ New Committee</h3>
     <input type="text" id="cm-name" placeholder="Committee name (e.g. Gujjar Milk BC)">
     <div class="row-2">
       <div><label>Start date</label><input type="date" id="cm-start"></div>
-      <div><label>Total months</label><input type="number" id="cm-months" min="1"></div>
+      <div><label>Total months</label><input type="number" id="cm-months" min="1" placeholder="e.g. 10"></div>
     </div>
     <div class="row-2">
       <div><label>Monthly installment (Rs)</label><input type="number" id="cm-installment" min="0"></div>
-      <div><label>Pool override (optional)</label><input type="number" id="cm-pool-override"></div>
+      <div><label>Pool override (optional)</label><input type="number" id="cm-pool-override" placeholder="Leave blank for auto"></div>
     </div>
-
     <label>Members</label>
     <div id="cm-members-list"></div>
-    <button type="button" id="cm-add-member-row-btn" class="secondary">+ Add member</button>
-
+    <button type="button" id="cm-add-member-row-btn" class="btn-secondary btn-sm" style="margin-bottom:14px;">➕ Add member</button>
     <div class="modal-actions">
-      <button type="button" id="cm-cancel-btn" class="secondary">Cancel</button>
-      <button type="button" id="cm-save-btn" class="primary">Create Committee</button>
+      <button type="button" id="cm-cancel-btn" class="btn-secondary">Cancel</button>
+      <button type="button" id="cm-save-btn" class="btn-primary">Create Committee</button>
     </div>
   </div>
 </div>
 
-<!-- Payment Cell Modal (record/edit a member+month) -->
+<!-- Edit Committee Modal -->
+<div id="edit-committee-modal" class="modal hidden">
+  <div class="modal-content">
+    <h3>✏️ Edit Committee</h3>
+    <label>Committee name</label>
+    <input type="text" id="ecm-name">
+    <div class="row-2">
+      <div><label>Start date</label><input type="date" id="ecm-start"></div>
+      <div><label>Total months</label><input type="number" id="ecm-months" min="1"></div>
+    </div>
+    <div class="row-2">
+      <div><label>Monthly installment (Rs)</label><input type="number" id="ecm-installment"></div>
+      <div><label>Pool override (optional)</label><input type="number" id="ecm-pool-override"></div>
+    </div>
+    <label>Members</label>
+    <div id="ecm-members-list"></div>
+    <button type="button" id="ecm-add-member-btn" class="btn-secondary btn-sm" style="margin-bottom:14px;">➕ Add member</button>
+    <div class="modal-actions">
+      <button type="button" id="ecm-cancel-btn" class="btn-secondary">Cancel</button>
+      <button type="button" id="ecm-save-btn" class="btn-primary">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Payment Modal -->
 <div id="pay-modal" class="modal hidden">
   <div class="modal-content">
-    <h3 id="pay-modal-title">Record Payment</h3>
+    <h3 id="pay-modal-title">💳 Record Payment</h3>
     <label>Member</label>
     <select id="pay-member-select"></select>
     <label>Month</label>
     <select id="pay-month-select"></select>
-
-    <label>Payments</label>
+    <label>Payments (add multiple lines for split payment)</label>
     <div id="pay-lines"></div>
-    <button type="button" id="pay-add-line-btn" class="secondary">+ Add part payment</button>
-
+    <button type="button" id="pay-add-line-btn" class="btn-secondary btn-sm" style="margin-bottom:14px;">➕ Add part payment</button>
     <label>Notes</label>
     <textarea id="pay-notes" rows="2" placeholder="Optional remarks..."></textarea>
-
-    <div style="display:flex; align-items:center; gap:8px; margin:10px 0 16px;">
-      <input type="checkbox" id="pay-skipped" style="width:auto; margin:0;">
-      <label style="margin:0;">Mark this month as skipped for this member</label>
+    <div style="display:flex; align-items:center; gap:8px; margin:6px 0 16px;">
+      <input type="checkbox" id="pay-skipped" style="width:auto; margin:0; flex-shrink:0;">
+      <label style="margin:0; text-transform:none; font-size:0.88rem; letter-spacing:0;">Mark as skipped (missed month)</label>
     </div>
-
     <div class="modal-actions">
-      <button type="button" id="pay-cancel-btn" class="secondary">Cancel</button>
-      <button type="button" id="pay-save-btn" class="primary">Save</button>
+      <button type="button" id="pay-cancel-btn" class="btn-secondary">Cancel</button>
+      <button type="button" id="pay-save-btn" class="btn-primary">Save Payment</button>
     </div>
   </div>
 </div>
 
-<!-- Mark Payout Paid Modal -->
+<!-- Payout Confirm Modal -->
 <div id="payout-modal" class="modal hidden">
   <div class="modal-content">
-    <h3>Confirm Payout Disbursed</h3>
-    <p id="payout-modal-info" class="muted"></p>
+    <h3>✅ Confirm Payout Disbursed</h3>
+    <p id="payout-modal-info" class="muted" style="margin-bottom:16px;"></p>
     <label>Payout amount</label>
     <input type="number" id="payout-amount-input">
     <label>Date disbursed</label>
     <input type="date" id="payout-date-input">
     <div class="modal-actions">
-      <button type="button" id="payout-cancel-btn" class="secondary">Cancel</button>
-      <button type="button" id="payout-confirm-btn" class="primary">Mark Paid</button>
+      <button type="button" id="payout-cancel-btn" class="btn-secondary">Cancel</button>
+      <button type="button" id="payout-confirm-btn" class="btn-success">✅ Mark Paid</button>
     </div>
   </div>
 </div>
 
-<!-- Hidden PDF render targets -->
-<div id="pdf-render-area" style="position:fixed; left:-9999px; top:0;"></div>
+<!-- Hidden PDF render area -->
+<div id="pdf-render-area" style="position:fixed; left:-9999px; top:0; z-index:-1;"></div>
 
-<!-- Load external libraries first -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<!-- Load environment config (development only; in production, inject via server) -->
---<script src=".env.js"></script>
-<!-- Load application code -->
 <script src="supabase-config.js"></script>
 <script src="db.js"></script>
 <script src="app.js"></script>
