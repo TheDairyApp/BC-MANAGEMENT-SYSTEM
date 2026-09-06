@@ -841,16 +841,6 @@ document.getElementById('export-master-pdf-btn').addEventListener('click', () =>
 });
 
 function renderPdf(html, filename) {
-  const area = document.getElementById('pdf-render-area');
-  // Temporarily make it visible so html2canvas can capture it
-  area.style.position = 'fixed';
-  area.style.left = '0';
-  area.style.top = '0';
-  area.style.zIndex = '-999';
-  area.style.opacity = '0';
-  area.style.pointerEvents = 'none';
-  area.innerHTML = html;
-
   const opt = {
     margin: [8, 8, 8, 8],
     filename: filename,
@@ -858,16 +848,8 @@ function renderPdf(html, filename) {
     html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
   };
-
-  html2pdf().set(opt).from(area).save().then(() => {
-    // Reset after export
-    area.style.position = 'fixed';
-    area.style.left = '-9999px';
-    area.style.opacity = '1';
-    area.innerHTML = '';
-  }).catch(err => {
+  html2pdf().set(opt).from(html).save().catch(err => {
     console.error('PDF error:', err);
     alert('PDF export failed: ' + err.message);
-    area.style.left = '-9999px';
   });
 }
