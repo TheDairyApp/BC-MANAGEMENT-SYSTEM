@@ -699,53 +699,175 @@ document.getElementById('save-admin-details-btn').addEventListener('click', () =
 });
 document.getElementById('export-member-pdf-btn').addEventListener('click', () => {
   const c = activeCommittee();
+  if (!c) { alert('No active committee.'); return; }
   const memberId = document.getElementById('report-member-select').value;
   const member = DB.cache.members.find(m => m.id === memberId);
-  if (!member) return;
+  if (!member) { alert('Select a member first.'); return; }
   const ledger = computeMemberLedger(c, member);
   const statusColor = { full: '#059669', partial: '#d97706', unpaid: '#dc2626', skipped: '#6b7280' };
+
   const rowsHtml = ledger.rows.map(r => `<tr>
-    <td>${monthLabel(r.monthKey)}</td>
-    <td>${fmtMoney(r.due)}</td>
-    <td>${fmtMoney(r.paid)}</td>
-    <td style="color:${statusColor[r.status]};font-weight:600;">${r.status}${r.isPayoutMonth ? ' 🏆' : ''}</td>
-    <td style="font-weight:700;color:${r.balance < 0 ? '#dc2626' : '#059669'};">${fmtMoney(r.balance)}</td>
+    <td style="padding:8px 10px;border:1px solid #ddd;font-weight:600;">${monthLabel(r.monthKey)}</td>
+    <td style="padding:8px 10px;border:1px solid #ddd;">${fmtMoney(r.due)}</td>
+    <td style="padding:8px 10px;border:1px solid #ddd;color:#059669;font-weight:600;">${fmtMoney(r.paid)}</td>
+    <td style="padding:8px 10px;border:1px solid #ddd;color:${statusColor[r.status]};font-weight:700;text-transform:capitalize;">${r.status}${r.isPayoutMonth ? ' 🏆' : ''}</td>
+    <td style="padding:8px 10px;border:1px solid #ddd;font-weight:700;color:${r.balance < 0 ? '#dc2626' : '#059669'};">${fmtMoney(r.balance)}</td>
   </tr>`).join('');
-  const html = `<div class="pdf-doc">
-    <h1>${c.name} — Member Ledger</h1>
-    <p class="pdf-meta">Member: <strong>${member.name}</strong>${member.phone ? ' · ' + member.phone : ''}<br>
-    Generated: ${todayDateStr()} · Installment: ${fmtMoney(c.monthly_installment)}/month · Total: ${c.total_months} months</p>
-    <h2>Payout Assignment</h2>
-    <p>${ledger.payoutRow?.member_id ? `Month: ${monthLabel(ledger.payoutRow.month_key)} · Amount: ${fmtMoney(ledger.payoutRow.payout_amount)} · Status: ${ledger.payoutRow.status}` : 'Not yet assigned.'}</p>
-    <h2>Monthly Ledger</h2>
-    <table><thead><tr><th>Month</th><th>Due</th><th>Paid</th><th>Status</th><th>Balance</th></tr></thead><tbody>${rowsHtml}</tbody></table>
-    <h2>Summary</h2>
-    <table><tr><th>Total Due</th><th>Total Paid</th><th>Remaining</th></tr>
-    <tr><td>${fmtMoney(ledger.totalDue)}</td><td>${fmtMoney(ledger.totalPaid)}</td><td style="font-weight:700;">${fmtMoney(ledger.totalDue - ledger.totalPaid)}</td></tr></table>
-  </div>`;
-  renderPdf(html, `${c.name.replace(/\s+/g,'_')}_${member.name.replace(/\s+/g,'_')}_ledger.pdf`);
+
+  const pr = ledger.payoutRow;
+  const html = `
+    <div style="width:680px;padding:32px;background:#ffffff;color:#111111;font-family:Arial,sans-serif;font-size:13px;line-height:1.5;">
+      <div style="border-bottom:3px solid #4f46e5;padding-bottom:14px;margin-bottom:20px;">
+        <h1 style="margin:0 0 4px;font-size:20px;">${c.name} — Member Ledger</h1>
+        <p style="margin:0;color:#555;font-size:13px;">
+          <strong>${member.name}</strong>${member.phone ? ' · ' + member.phone : ''} &nbsp;|&nbsp;
+          Generated: ${todayDateStr()} &nbsp;|&nbsp; ${fmtMoney(c.monthly_installment)}/month · ${c.total_months} months
+        </p>
+      </div>
+
+      <div style="background:#f5f5f5;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
+        <strong>Payout Assignment: </strong>
+        ${pr && pr.member_id
+          ? `${monthLabel(pr.month_key)} · ${fmtMoney(pr.payout_amount)} · <span style="color:${pr.status==='paid'?'#059669':'#d97706'};font-weight:700;">${pr.status}</span>`
+          : 'Not yet assigned.'}
+      </div>
+
+      <h2 style="font-size:14px;margin:0 0 10px;border-bottom:1px solid #ddd;padding-bottom:6px;">Monthly Ledger</h2>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+        <thead>
+          <tr style="background:#f0f0f0;">
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Month</th>
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Due</th>
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Paid</th>
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Status</th>
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Balance</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+        <tfoot>
+          <tr style="background:#e8e8e8;font-weight:700;">
+            <td style="padding:9px 10px;border:1px solid #ddd;">Total</td>
+            <td style="padding:9px 10px;border:1px solid #ddd;">${fmtMoney(ledger.totalDue)}</td>
+            <td style="padding:9px 10px;border:1px solid #ddd;color:#059669;">${fmtMoney(ledger.totalPaid)}</td>
+            <td style="padding:9px 10px;border:1px solid #ddd;"></td>
+            <td style="padding:9px 10px;border:1px solid #ddd;color:${ledger.totalDue - ledger.totalPaid > 0 ? '#dc2626' : '#059669'};">${fmtMoney(ledger.totalDue - ledger.totalPaid)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+
+  renderPdf(html, `${c.name.replace(/\s+/g,'_')}_${member.name.replace(/\s+/g,'_')}_ledger_${todayDateStr()}.pdf`);
 });
 document.getElementById('export-master-pdf-btn').addEventListener('click', () => {
   const c = activeCommittee();
+  if (!c) { alert('No active committee.'); return; }
   const members = DB.getMembersForCommittee(c.id);
   const keys = buildScheduleKeys(c.start_date, c.total_months);
   let cumCash = 0;
+  let totalInflow = 0, totalOutflow = 0;
+
   const rows = keys.map(mk => {
-    const inflow = DB.cache.transactions.filter(t => t.committee_id === c.id && t.month_key === mk && t.type === 'inflow_installment').reduce((s, t) => s + Number(t.amount), 0);
+    const inflow  = DB.cache.transactions.filter(t => t.committee_id === c.id && t.month_key === mk && t.type === 'inflow_installment').reduce((s, t) => s + Number(t.amount), 0);
     const outflow = DB.cache.transactions.filter(t => t.committee_id === c.id && t.month_key === mk && t.type === 'outflow_payout').reduce((s, t) => s + Number(t.amount), 0);
     cumCash += inflow - outflow;
-    return `<tr><td>${monthLabel(mk)}</td><td style="color:#059669;">${fmtMoney(inflow)}</td><td style="color:#dc2626;">${outflow > 0 ? fmtMoney(outflow) : '—'}</td><td>${fmtMoney(inflow - outflow)}</td><td style="font-weight:700;color:${cumCash >= 0 ? '#059669' : '#dc2626'};">${fmtMoney(cumCash)}</td></tr>`;
+    totalInflow += inflow; totalOutflow += outflow;
+    const netColor = (inflow - outflow) >= 0 ? '#059669' : '#dc2626';
+    const cumColor = cumCash >= 0 ? '#059669' : '#dc2626';
+    return `<tr>
+      <td style="font-weight:600;">${monthLabel(mk)}</td>
+      <td style="color:#059669;font-weight:600;">${inflow > 0 ? fmtMoney(inflow) : '—'}</td>
+      <td style="color:#dc2626;font-weight:600;">${outflow > 0 ? fmtMoney(outflow) : '—'}</td>
+      <td style="color:${netColor};font-weight:600;">${fmtMoney(inflow - outflow)}</td>
+      <td style="color:${cumColor};font-weight:700;">${fmtMoney(cumCash)}</td>
+    </tr>`;
   }).join('');
-  const html = `<div class="pdf-doc">
-    <h1>${c.name} — Master Cashflow Report</h1>
-    <p class="pdf-meta">Generated: ${todayDateStr()} · ${members.length} members · Pool per draw: ${fmtMoney(computePool(c))}</p>
-    <table><thead><tr><th>Month</th><th>Inflow</th><th>Outflow</th><th>Net</th><th>Cash on Hand</th></tr></thead><tbody>${rows}</tbody></table>
-  </div>`;
-  renderPdf(html, `${c.name.replace(/\s+/g,'_')}_cashflow.pdf`);
+
+  const expectedTotal = members.length * Number(c.monthly_installment) * keys.length;
+  const collectionRate = expectedTotal > 0 ? Math.round((totalInflow / expectedTotal) * 100) : 0;
+
+  const html = `
+    <div style="width:720px;padding:32px;background:#ffffff;color:#111111;font-family:Arial,sans-serif;font-size:13px;line-height:1.5;">
+      <div style="border-bottom:3px solid #4f46e5;padding-bottom:14px;margin-bottom:20px;">
+        <h1 style="margin:0 0 4px;font-size:22px;color:#111;">${c.name}</h1>
+        <p style="margin:0;color:#555;font-size:13px;">Master Cashflow Report</p>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+        <tr>
+          <td style="padding:8px 12px;background:#f5f5f5;border-radius:6px;margin-right:8px;">
+            <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;">Generated</div>
+            <div style="font-weight:700;margin-top:2px;">${todayDateStr()}</div>
+          </td>
+          <td style="padding:8px 12px;background:#f5f5f5;">
+            <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;">Members</div>
+            <div style="font-weight:700;margin-top:2px;">${members.length}</div>
+          </td>
+          <td style="padding:8px 12px;background:#f5f5f5;">
+            <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;">Pool per Draw</div>
+            <div style="font-weight:700;margin-top:2px;">${fmtMoney(computePool(c))}</div>
+          </td>
+          <td style="padding:8px 12px;background:#f5f5f5;">
+            <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;">Collection Rate</div>
+            <div style="font-weight:700;margin-top:2px;color:${collectionRate >= 80 ? '#059669' : '#dc2626'};">${collectionRate}%</div>
+          </td>
+        </tr>
+      </table>
+
+      <h2 style="font-size:14px;color:#333;margin:0 0 10px;border-bottom:1px solid #ddd;padding-bottom:6px;">Month-by-Month Cashflow</h2>
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="background:#f0f0f0;">
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Month</th>
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Inflow (Collected)</th>
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Outflow (Payout)</th>
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Net</th>
+            <th style="text-align:left;padding:9px 10px;border:1px solid #ddd;font-size:12px;">Cash on Hand</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+        <tfoot>
+          <tr style="background:#e8e8e8;font-weight:700;">
+            <td style="padding:9px 10px;border:1px solid #ddd;">Total</td>
+            <td style="padding:9px 10px;border:1px solid #ddd;color:#059669;">${fmtMoney(totalInflow)}</td>
+            <td style="padding:9px 10px;border:1px solid #ddd;color:#dc2626;">${fmtMoney(totalOutflow)}</td>
+            <td style="padding:9px 10px;border:1px solid #ddd;">${fmtMoney(totalInflow - totalOutflow)}</td>
+            <td style="padding:9px 10px;border:1px solid #ddd;color:${cumCash >= 0 ? '#059669' : '#dc2626'};">${fmtMoney(cumCash)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+
+  renderPdf(html, `${c.name.replace(/\s+/g, '_')}_cashflow_${todayDateStr()}.pdf`);
 });
 
 function renderPdf(html, filename) {
   const area = document.getElementById('pdf-render-area');
+  // Temporarily make it visible so html2canvas can capture it
+  area.style.position = 'fixed';
+  area.style.left = '0';
+  area.style.top = '0';
+  area.style.zIndex = '-999';
+  area.style.opacity = '0';
+  area.style.pointerEvents = 'none';
   area.innerHTML = html;
-  html2pdf().from(area).set({ filename, margin: 10, html2canvas: { scale: 2 }, jsPDF: { orientation: 'landscape' } }).save();
+
+  const opt = {
+    margin: [8, 8, 8, 8],
+    filename: filename,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+  };
+
+  html2pdf().set(opt).from(area).save().then(() => {
+    // Reset after export
+    area.style.position = 'fixed';
+    area.style.left = '-9999px';
+    area.style.opacity = '1';
+    area.innerHTML = '';
+  }).catch(err => {
+    console.error('PDF error:', err);
+    alert('PDF export failed: ' + err.message);
+    area.style.left = '-9999px';
+  });
 }
